@@ -37,6 +37,7 @@ uniform ivec4 entityTint;
 uniform float brightness;
 uniform int useFog;
 uniform int fogDepth;
+uniform float stormFogDensity;
 uniform int drawDistance;
 uniform int expandedMapLoadingChunks;
 uniform ivec3 base;
@@ -237,4 +238,18 @@ void main()
             fogDepth * TILE_SIZE
         )
         * useFog;
+
+	if (stormFogDensity > 0.0)
+	{
+		float stormDensity = clamp(stormFogDensity, 0.0, 1.0);
+		float cameraDistance = length(worldPos.xz - vec2(cameraX, cameraZ));
+		float stormFogStart = mix(15.0, 6.5, stormDensity) * TILE_SIZE;
+		float stormFogEnd = mix(42.0, 25.0, stormDensity) * TILE_SIZE;
+		float stormFogMaximum = mix(0.42, 0.72, stormDensity);
+		float stormDistanceFog = smoothstep(
+			stormFogStart,
+			stormFogEnd,
+			cameraDistance) * stormFogMaximum;
+		fFogAmount = max(fFogAmount, stormDistanceFog);
+	}
 }

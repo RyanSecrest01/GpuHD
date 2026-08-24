@@ -520,47 +520,60 @@ public interface GpuPluginConfig extends Config
 		return 80;
 	}
 
+	@Range(min = 0, max = 100)
+	@ConfigItem(keyName = "stormFogDensity", name = "Storm fog density", description = "Controls storm view-distance fog and volumetric mist density.", position = 31)
+	default int stormFogDensity()
+	{
+		return 78;
+	}
+
+	@ConfigItem(keyName = "stormSkyMode", name = "Storm sky", description = "Selects a brighter daytime storm or a dark nighttime storm.", position = 32)
+	default StormSkyMode stormSkyMode()
+	{
+		return StormSkyMode.DAY;
+	}
+
 	@Range(min = -100, max = 100)
-	@ConfigItem(keyName = "weatherWind", name = "Weather wind", description = "Controls horizontal precipitation drift.", position = 31)
+	@ConfigItem(keyName = "weatherWind", name = "Weather wind", description = "Controls horizontal precipitation drift.", position = 33)
 	default int weatherWind()
 	{
 		return 25;
 	}
 
-	@ConfigItem(keyName = "weatherSounds", name = "Weather sounds", description = "Plays looping rain and synchronized thunder for weather modes.", position = 32)
+	@ConfigItem(keyName = "weatherSounds", name = "Weather sounds", description = "Plays looping rain and synchronized thunder for weather modes.", position = 34)
 	default boolean weatherSounds()
 	{
 		return true;
 	}
 
 	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "weatherVolume", name = "Weather volume", description = "Controls rain and thunder volume.", position = 33)
+	@ConfigItem(keyName = "weatherVolume", name = "Weather volume", description = "Controls rain and thunder volume.", position = 35)
 	default int weatherVolume()
 	{
 		return 55;
 	}
 
-	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects morning, overhead noon, or opposite evening sunlight. The day/night cycle overrides this.", position = 34)
+	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects morning, overhead noon, or opposite evening sunlight. The day/night cycle overrides this.", position = 36)
 	default SunPosition sunPosition()
 	{
 		return SunPosition.MORNING;
 	}
 
 	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightDirectLight", name = "Night direct light", description = "Moonlight strength during night and cosmic stages.", position = 35)
+	@ConfigItem(keyName = "nightDirectLight", name = "Night direct light", description = "Moonlight strength during night and cosmic stages.", position = 37)
 	default int nightDirectLight()
 	{
 		return 28;
 	}
 
 	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightAmbientLight", name = "Night ambient light", description = "Ambient world brightness during night and cosmic stages.", position = 36)
+	@ConfigItem(keyName = "nightAmbientLight", name = "Night ambient light", description = "Ambient world brightness during night and cosmic stages.", position = 38)
 	default int nightAmbientLight()
 	{
 		return 42;
 	}
 
-	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects the nighttime moon and moonlight direction.", position = 37)
+	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects the nighttime moon and moonlight direction.", position = 39)
 	default MoonPosition moonPosition()
 	{
 		return MoonPosition.SOUTHEAST;

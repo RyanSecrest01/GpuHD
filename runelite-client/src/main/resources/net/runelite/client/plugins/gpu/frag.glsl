@@ -40,8 +40,10 @@ uniform vec3 cameraPosition;
 uniform int enhancedWater;
 uniform float waterStrength;
 uniform float waterOpacity;
+uniform samplerCube environmentMap;
 uniform float lightningFlash;
 uniform int weatherMode;
+uniform float weatherTime;
 uniform float celestialRayStrength;
 uniform float celestialNightFactor;
 uniform int tick;
@@ -301,6 +303,8 @@ void main()
     // CUSTOM: Directional surface lighting
     // ====================================================
 
+    float worldShadowVisibility = 1.0;
+
     if (dynamicLighting != 0)
     {
         /*
@@ -453,6 +457,7 @@ void main()
                     1.0 - occlusion * clamp(shadowStrength, 0.0, 0.8);
             }
         }
+		worldShadowVisibility = shadowVisibility;
 
         /* Shadows remove direct sun only; ambient light remains intact. */
         float directionalShade =
@@ -496,6 +501,71 @@ void main()
                 1.0
             );
     }
+
+    // ====================================================
+    // Rain-wet surfaces and lightweight ground impacts
+    // ====================================================
+
+	if ((weatherMode == 1 || weatherMode == 2) && !waterSurface)
+	{
+		vec3 wetNormal = normalize(cross(dFdx(fWorldPos), dFdy(fWorldPos)));
+		if (wetNormal.y < 0.0)
+		{
+			wetNormal = -wetNormal;
+		}
+
+		float upwardSurface = smoothstep(0.18, 0.72, wetNormal.y);
+		float stormWetness = weatherMode == 2 ? 0.94 : 0.68;
+		float wetAmount = upwardSurface * stormWetness;
+		vec3 wetViewDirection = normalize(cameraPosition - fWorldPos);
+		float wetFresnel = pow(
+			1.0 - max(dot(wetNormal, wetViewDirection), 0.0),
+			1.7);
+		vec3 wetLightDirection = normalize(vec3(
+			-lightDirection.x,
+			 lightDirection.y,
+			-lightDirection.z));
+		float wetHighlight = pow(max(dot(
+			reflect(-wetLightDirection, wetNormal),
+			wetViewDirection), 0.0), 12.0);
+		vec3 reflectionDirection = reflect(-wetViewDirection, wetNormal);
+		vec3 reflectedStormColor = texture(environmentMap, reflectionDirection).rgb;
+		reflectedStormColor *= weatherMode == 2 ? 0.82 : 0.92;
+		reflectedStormColor += vec3(0.28, 0.38, 0.52) * lightningFlash * 0.65;
+
+		// Wet materials become slightly darker and more reflective without
+		// losing their original hue or turning into a gray overlay.
+		c.rgb *= 1.0 - wetAmount * 0.14;
+		float environmentReflection = wetAmount * (0.10 + wetFresnel * 0.24);
+		c.rgb = mix(c.rgb, reflectedStormColor, environmentReflection);
+		c.rgb += vec3(0.50, 0.64, 0.78)
+			* wetHighlight * wetAmount * (0.14 + lightningFlash * 0.34);
+
+		// Surface-local rings imply raindrops hitting terrain. They are derived
+		// from existing fragments, so they follow slopes without impact geometry.
+		vec2 impactCell = floor(fWorldPos.xz / 92.0);
+		vec2 impactUv = fract(fWorldPos.xz / 92.0) - vec2(0.5);
+		float impactSeed = fract(sin(dot(
+			impactCell,
+			vec2(12.9898, 78.233))) * 43758.5453);
+		vec2 impactCenter = vec2(
+			fract(impactSeed * 17.13),
+			fract(impactSeed * 43.71)) - vec2(0.5);
+		float impactPhase = fract(weatherTime * 1.35 + impactSeed);
+		float impactRadius = impactPhase * 0.34;
+		float impactRing = 1.0 - smoothstep(
+			0.018,
+			0.050,
+			abs(length(impactUv - impactCenter) - impactRadius));
+		impactRing *= smoothstep(0.04, 0.15, impactPhase)
+			* (1.0 - smoothstep(0.58, 1.0, impactPhase));
+		c.rgb += vec3(0.48, 0.63, 0.72)
+			* impactRing
+			* wetAmount
+			* (weatherMode == 2 ? 0.16 : 0.10);
+		c.rgb = clamp(c.rgb, 0.0, 1.0);
+	}
+
     // ====================================================
     // CUSTOM: Enhanced colors
     // ====================================================
@@ -568,23 +638,35 @@ void main()
 		mixedColor = mix(mixedColor, vec3(0.80, 0.87, 0.92), accumulation);
 	}
 	float weatherDistance = length(cameraPosition - fWorldPos);
-	float weatherMist = 0.0;
-	vec3 weatherMistColor = vec3(0.48, 0.55, 0.60);
-	if (weatherMode == 1) weatherMist = 0.10;
-	if (weatherMode == 2) { weatherMist = 0.82; weatherMistColor = vec3(0.40, 0.42, 0.43); }
-	if (weatherMode == 3) { weatherMist = 0.14; weatherMistColor = vec3(0.68, 0.75, 0.82); }
-	if (weatherMode == 4) { weatherMist = 0.40; weatherMistColor = vec3(0.68, 0.73, 0.78); }
-	float weatherHaze = smoothstep(
-		weatherMode == 2 ? 48.0 : 350.0,
-		weatherMode == 2 ? 1050.0 : 3300.0,
-		weatherDistance) * weatherMist;
 	if (weatherMode == 2)
 	{
-		weatherHaze = clamp(weatherHaze + 0.14, 0.0, 0.94);
+		float stormPocket = 0.5
+			+ sin(fWorldPos.x * 0.0052 + weatherTime * 0.17) * 0.24
+			+ sin(fWorldPos.z * 0.0061 - weatherTime * 0.13) * 0.18
+			+ sin((fWorldPos.x + fWorldPos.z) * 0.0027 + weatherTime * 0.09) * 0.12;
+		stormPocket = smoothstep(0.36, 0.72, stormPocket);
+		float nearMistBand = smoothstep(64.0, 300.0, weatherDistance)
+			* (1.0 - smoothstep(2200.0, 3800.0, weatherDistance));
+		float localStormMist = stormPocket * nearMistBand * 0.42;
+		float distantStormHaze = smoothstep(900.0, 4600.0, weatherDistance) * 0.32;
+		float stormAtmosphere = clamp(localStormMist + distantStormHaze, 0.0, 0.58);
+		vec3 stormScattering = mixedColor * vec3(0.68, 0.76, 0.86)
+			+ vec3(0.018, 0.025, 0.036);
+		mixedColor = mix(mixedColor, stormScattering, stormAtmosphere);
 	}
-	mixedColor = mix(mixedColor, weatherMistColor, weatherHaze);
+	else
+	{
+		float weatherMist = 0.0;
+		vec3 weatherMistColor = vec3(0.48, 0.55, 0.60);
+		if (weatherMode == 1) weatherMist = 0.10;
+		if (weatherMode == 3) { weatherMist = 0.14; weatherMistColor = vec3(0.68, 0.75, 0.82); }
+		if (weatherMode == 4) { weatherMist = 0.40; weatherMistColor = vec3(0.68, 0.73, 0.78); }
+		float weatherHaze = smoothstep(350.0, 3300.0, weatherDistance) * weatherMist;
+		mixedColor = mix(mixedColor, weatherMistColor, weatherHaze);
+	}
+	float lightningVisibility = mix(0.16, 1.0, worldShadowVisibility);
 	mixedColor += vec3(0.68, 0.78, 1.0) * lightningFlash
-		* (0.32 + 0.68 * (1.0 - fFogAmount));
+		* lightningVisibility * (0.32 + 0.68 * (1.0 - fFogAmount));
 
     FragColor =
         vec4(

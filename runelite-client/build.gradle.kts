@@ -201,6 +201,28 @@ tasks.withType<Test> {
     systemProperty("glslang.path", providers.gradleProperty("glslangPath").getOrElse(""))
 }
 
+// RuneLite's macOS fullscreen adapter uses Apple APIs that are encapsulated by
+// the Java module system. IntelliJ's Gradle-delegated main-class runner creates
+// a JavaExec task, so supply the exports to that child JVM on macOS.
+tasks.withType<JavaExec>().configureEach {
+    enableAssertions = true
+
+    if (System.getProperty("os.name").startsWith("Mac")) {
+        jvmArgs(
+            "--add-exports=java.desktop/com.apple.eawt=ALL-UNNAMED",
+            "--add-exports=java.desktop/com.apple.eawt.event=ALL-UNNAMED"
+        )
+    }
+}
+
+tasks.register<JavaExec>("runRuneLite") {
+    group = "application"
+    description = "Runs RuneLite in developer mode"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("net.runelite.client.RuneLite")
+    args("--developer-mode", "--debug", "--profile", "GpuHD-dev")
+}
+
 tasks.javadoc {
     title = "RuneLite Client ${project.version} API"
 }

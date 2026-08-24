@@ -178,7 +178,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int glWeatherProgram;
 	private int uniWeatherProjection, uniWeatherCamera, uniWeatherTime;
 	private int uniWeatherRadius, uniWeatherFallSpeed, uniWeatherWind, uniWeatherStreakLength;
-	private int uniWeatherSnow, uniWeatherStorm, uniWeatherIntensity;
+	private int uniWeatherSnow, uniWeatherStorm, uniWeatherMist, uniWeatherIntensity;
+	private int uniWeatherLightningFlash, uniWeatherShadowMap, uniWeatherShadowLightProj;
 	private final float[] weatherProjection = Mat4.identity();
 	private float weatherCameraX, weatherCameraY, weatherCameraZ;
 	private final WeatherAudioController weatherAudio = new WeatherAudioController();
@@ -209,8 +210,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniEnhancedWater;
 	private int uniWaterStrength;
 	private int uniWaterOpacity;
+	private int uniEnvironmentMap;
 	private int uniLightningFlash;
 	private int uniWeatherModeMain;
+	private int uniWeatherTimeMain;
 	private int uniCelestialRayStrength;
 	private int uniCelestialNightFactor;
 
@@ -224,6 +227,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private final int[] rainSkyTextures = new int[3];
 	private final int[] snowSkyTextures = new int[5];
 	private final int[] lightningSkyTextures = new int[4];
+	private int activeSkyTexture;
 
 	private int vaoUiHandle;
 	private int vboUiHandle;
@@ -343,6 +347,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniUseFog;
 	private int uniFogColor;
 	private int uniFogDepth;
+	private int uniStormFogDensity;
 	private int uniDrawDistance;
 	private int uniExpandedMapLoadingChunks;
 	private int uniSmoothBanding;
@@ -730,7 +735,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		Template template = createTemplate();
 
 		glProgram =
-				PROGRAM.compile(template);
+				PROGRAM.compile(template, Map.of(
+					"textures", 1,
+					"shadowMap", 2,
+					"environmentMap", 3));
 
 		glUiProgram =
 				UI_PROGRAM.compile(template);
@@ -743,7 +751,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glShadowDebugProgram =
 				SHADOW_DEBUG_PROGRAM.compile(template);
-		glWeatherProgram = WEATHER_PROGRAM.compile(template);
+		glWeatherProgram = WEATHER_PROGRAM.compile(template, Map.of("shadowMap", 2));
 
 		glBindVertexArray(0);
 
@@ -1059,8 +1067,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
 		uniWaterStrength = glGetUniformLocation(glProgram, "waterStrength");
 		uniWaterOpacity = glGetUniformLocation(glProgram, "waterOpacity");
+		uniEnvironmentMap = glGetUniformLocation(glProgram, "environmentMap");
 		uniLightningFlash = glGetUniformLocation(glProgram, "lightningFlash");
 		uniWeatherModeMain = glGetUniformLocation(glProgram, "weatherMode");
+		uniWeatherTimeMain = glGetUniformLocation(glProgram, "weatherTime");
 		uniCelestialRayStrength = glGetUniformLocation(glProgram, "celestialRayStrength");
 		uniCelestialNightFactor = glGetUniformLocation(glProgram, "celestialNightFactor");
 		uniSmoothBanding = glGetUniformLocation(glProgram, "smoothBanding");
@@ -1068,6 +1078,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniUseFog = glGetUniformLocation(glProgram, "useFog");
 		uniFogColor = glGetUniformLocation(glProgram, "fogColor");
 		uniFogDepth = glGetUniformLocation(glProgram, "fogDepth");
+		uniStormFogDensity = glGetUniformLocation(glProgram, "stormFogDensity");
 		uniDrawDistance = glGetUniformLocation(glProgram, "drawDistance");
 		uniExpandedMapLoadingChunks = glGetUniformLocation(glProgram, "expandedMapLoadingChunks");
 		uniTextureLightMode = glGetUniformLocation(glProgram, "textureLightMode");
@@ -1093,7 +1104,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniWeatherStreakLength = glGetUniformLocation(glWeatherProgram, "streakLength");
 		uniWeatherSnow = glGetUniformLocation(glWeatherProgram, "snow");
 		uniWeatherStorm = glGetUniformLocation(glWeatherProgram, "storm");
+		uniWeatherMist = glGetUniformLocation(glWeatherProgram, "mist");
 		uniWeatherIntensity = glGetUniformLocation(glWeatherProgram, "intensity");
+		uniWeatherLightningFlash = glGetUniformLocation(glWeatherProgram, "lightningFlash");
+		uniWeatherShadowMap = glGetUniformLocation(glWeatherProgram, "shadowMap");
+		uniWeatherShadowLightProj = glGetUniformLocation(glWeatherProgram, "shadowLightProj");
 	}
 
 	private void shutdownProgram()
@@ -1900,7 +1915,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private SkyMode getEnvironmentSkyMode()
 	{
 		WeatherMode weather = config.weatherMode();
-		if (weather == WeatherMode.STORM || weather == WeatherMode.BLIZZARD)
+		if (weather == WeatherMode.STORM)
+		{
+			// The sunset environment is the brighter of the two fully overcast
+			// storm presets. The old day cubemap has visible clear-sky holes.
+			return config.stormSkyMode() == StormSkyMode.DAY ? SkyMode.SUNSET : SkyMode.NIGHT;
+		}
+		if (weather == WeatherMode.BLIZZARD)
 		{
 			return SkyMode.NIGHT;
 		}
@@ -2016,7 +2037,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 		else if (weather == WeatherMode.STORM)
 		{
-			selectedSkyTexture = rainSkyTextures[2];
+			selectedSkyTexture = config.stormSkyMode() == StormSkyMode.DAY
+				? rainSkyTextures[1] : rainSkyTextures[2];
 		}
 		else if (weather == WeatherMode.SNOW)
 		{
@@ -2045,6 +2067,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				selectedSkyTexture = cosmicSkyTexture;
 				break;
 		}
+		activeSkyTexture = selectedSkyTexture;
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, selectedSkyTexture);
@@ -2242,6 +2265,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		final int drawDistance = getDrawDistance();
 
 		int fogDepth = config.fogDepth();
+		boolean stormFog = config.weatherMode() == WeatherMode.STORM;
 
 		final int sky =
 				client.getSkyboxColor();
@@ -2304,6 +2328,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			fogDepth =
 					config.customFogStrength();
 		}
+
 		else
 		{
 			// Normal RuneLite fog behavior
@@ -2317,9 +2342,20 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					(sky & 0xFF) / 255f;
 		}
 
+		// Storm fog uses the existing Fog thickness control, but unlike RuneLite's
+		// normal edge-only fog it is measured outward from the camera.
+		if (stormFog)
+		{
+			float stormBrightness = config.customFogBrightness() / 100.0f;
+			boolean dayStorm = config.stormSkyMode() == StormSkyMode.DAY;
+			fogR = (dayStorm ? 0.12f : 0.055f) * stormBrightness;
+			fogG = (dayStorm ? 0.16f : 0.075f) * stormBrightness;
+			fogB = (dayStorm ? 0.21f : 0.115f) * stormBrightness;
+		}
+
 		glUniform1i(
 				uniUseFog,
-				fogDepth > 0 ? 1 : 0
+				fogDepth > 0 || stormFog ? 1 : 0
 		);
 
 		glUniform4f(
@@ -2333,6 +2369,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform1i(
 				uniFogDepth,
 				fogDepth
+		);
+
+		glUniform1f(
+				uniStormFogDensity,
+				stormFog ? config.stormFogDensity() / 100.0f : 0.0f
 		);
 
 		glUniform1i(
@@ -2394,10 +2435,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// =====================================================
 		// Lightweight directional lighting
 		// =====================================================
+		long weatherNow = System.currentTimeMillis();
+		WeatherMode activeWeather = config.weatherMode();
+		float lightningFlash = activeWeather == WeatherMode.STORM || activeWeather == WeatherMode.BLIZZARD
+			? getLightningFlash(weatherNow) : 0.0f;
+		boolean lightningShadow = lightningFlash > 0.0f;
+		boolean directionalLightingActive = config.dynamicLighting() || lightningShadow;
+		boolean shadowPassActive = config.dynamicLighting() && config.dynamicShadows() || lightningShadow;
 
 		glUniform1i(
 				uniDynamicLighting,
-				config.dynamicLighting() ? 1 : 0
+				directionalLightingActive ? 1 : 0
 		);
 
 		SkyMode lightingSky = getEnvironmentSkyMode();
@@ -2463,11 +2511,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				uniWaterOpacity,
 				config.waterOpacity() / 100.0f
 		);
-		WeatherMode activeWeather = config.weatherMode();
-		float lightningFlash = activeWeather == WeatherMode.STORM || activeWeather == WeatherMode.BLIZZARD
-			? getLightningFlash(System.currentTimeMillis()) : 0.0f;
 		glUniform1f(uniLightningFlash, lightningFlash);
 		glUniform1i(uniWeatherModeMain, activeWeather.ordinal());
+		glUniform1f(uniWeatherTimeMain,
+			(weatherNow % 600_000L) / 1000.0f);
 
 		// =====================================================
 		// Texture animation tick
@@ -2581,7 +2628,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// Draw custom sky
 		// =====================================================
 
-		if (config.dynamicLighting() && config.dynamicShadows())
+		if (shadowPassActive)
 		{
 			renderShadowMap(
 					scene,
@@ -2602,12 +2649,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glUniform1i(
 				uniShadowsEnabled,
-				config.dynamicLighting() && config.dynamicShadows() ? 1 : 0
+				shadowPassActive ? 1 : 0
 		);
 
 		glUniform1f(
 				uniShadowStrength,
-				config.shadowStrength() / 100.0f
+				Math.max(config.shadowStrength() / 100.0f, lightningFlash * 0.72f)
 		);
 
 		glActiveTexture(GL_TEXTURE2);
@@ -2633,6 +2680,15 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				cameraPitch,
 				cameraYaw
 		);
+
+		// Reuse the selected sky cubemap as the wet-surface environment. Keep it
+		// isolated on its own unit so RuneLite's texture array and shadow map stay
+		// untouched.
+		glUseProgram(glProgram);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, activeSkyTexture);
+		glUniform1i(uniEnvironmentMap, 3);
+		glActiveTexture(GL_TEXTURE0);
 
 		checkGLErrors();
 	}
@@ -2685,7 +2741,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private void drawWeather()
 	{
 		WeatherMode mode = config.weatherMode();
-		updateWeatherAudio(mode, System.currentTimeMillis());
+		long now = System.currentTimeMillis();
+		updateWeatherAudio(mode, now);
 		if (mode == WeatherMode.CLEAR || glWeatherProgram == 0)
 		{
 			return;
@@ -2698,15 +2755,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUseProgram(glWeatherProgram);
 		glUniformMatrix4fv(uniWeatherProjection, false, weatherProjection);
 		glUniform3f(uniWeatherCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
-		glUniform1f(uniWeatherTime, (System.currentTimeMillis() % 600_000L) / 1000.0f);
+		glUniform1f(uniWeatherTime, (now % 600_000L) / 1000.0f);
 		glUniform1f(uniWeatherRadius, storm ? 1550.0f : severe ? 1750.0f : 1950.0f);
 		glUniform1f(uniWeatherFallSpeed, snow ? (severe ? 210.0f : 135.0f) : (storm ? 2400.0f : 1250.0f));
 		glUniform1f(uniWeatherWind, config.weatherWind() * (severe ? 4.0f : 2.2f));
 		glUniform1f(uniWeatherStreakLength, storm ? 255.0f : severe ? 210.0f : 145.0f);
 		glUniform1i(uniWeatherSnow, snow ? 1 : 0);
 		glUniform1i(uniWeatherStorm, storm ? 1 : 0);
-		float flash = severe ? getLightningFlash(System.currentTimeMillis()) : 0.0f;
+		glUniform1i(uniWeatherMist, 0);
+		float flash = severe ? getLightningFlash(now) : 0.0f;
+		glUniform1f(uniWeatherLightningFlash, flash);
 		glUniform1f(uniWeatherIntensity, (storm ? 0.82f : severe ? 0.72f : 0.48f) + flash * 0.28f);
+		glUniformMatrix4fv(uniWeatherShadowLightProj, false, currentShadowLightProj);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+		glUniform1i(uniWeatherShadowMap, 2);
+		glActiveTexture(GL_TEXTURE0);
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthMask(false);
@@ -2719,6 +2783,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 		glBindVertexArray(vaoSkyHandle);
 		glDrawArrays(snow ? GL_POINTS : GL_LINES, 0, snow ? particles : particles * 2);
+
+		// A separate camera-centered mist volume puts atmosphere into empty air.
+		// It reuses the weather VAO and remains depth-tested against the scene.
+		if (storm && client.getGameState() == GameState.LOGGED_IN)
+		{
+			float mistDensity = config.stormFogDensity() / 100.0f;
+			int mistParticles = 9000 * config.stormFogDensity() / 100;
+			glUniform1i(uniWeatherMist, 1);
+			glUniform1i(uniWeatherSnow, 0);
+			// Keep the particle-volume boundary behind the distance fog. The old
+			// 3,000-unit cylinder could project a visible cutoff into the scene.
+			glUniform1f(uniWeatherRadius, 6800.0f);
+			glUniform1f(uniWeatherIntensity, mistDensity);
+			glDrawArrays(GL_TRIANGLES, 0, mistParticles * 6);
+			glUniform1i(uniWeatherMist, 0);
+		}
 		glBindVertexArray(0);
 		if (snow)
 		{
@@ -2780,6 +2860,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void postDrawToplevel()
 	{
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		glActiveTexture(GL_TEXTURE0);
 		glDisable(GL_BLEND);
 		glDisable(GL_CULL_FACE);
 		glDisable(GL_DEPTH_TEST);

@@ -28,6 +28,7 @@ package net.runelite.client.plugins.gpu;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +59,11 @@ class Shader
 	}
 
 	int compile(Template template) throws ShaderException
+	{
+		return compile(template, Map.of());
+	}
+
+	int compile(Template template, Map<String, Integer> samplerUnits) throws ShaderException
 	{
 		int program = glCreateProgram();
 		int[] shaders = new int[units.size()];
@@ -95,6 +101,28 @@ class Shader
 			{
 				String err = glGetProgramInfoLog(program);
 				throw new ShaderException(err);
+			}
+
+			if (!samplerUnits.isEmpty())
+			{
+				int previousProgram = glGetInteger(GL_CURRENT_PROGRAM);
+				try
+				{
+					glUseProgram(program);
+					for (Map.Entry<String, Integer> sampler : samplerUnits.entrySet())
+					{
+						int location = glGetUniformLocation(program, sampler.getKey());
+						if (location == -1)
+						{
+							throw new ShaderException("Unable to find sampler uniform " + sampler.getKey());
+						}
+						glUniform1i(location, sampler.getValue());
+					}
+				}
+				finally
+				{
+					glUseProgram(previousProgram);
+				}
 			}
 
 			glValidateProgram(program);
