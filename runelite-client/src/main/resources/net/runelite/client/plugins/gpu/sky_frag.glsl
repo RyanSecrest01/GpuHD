@@ -39,12 +39,8 @@ void main()
 		* exp(-sunRadius * 13.0);
 	float horizontalFlare = exp(-abs(sunPlane.y) * 75.0)
 		* exp(-abs(sunPlane.x) * 5.0);
-	float sunDown = max(-sunPlane.y, 0.0);
-	float sunTail = exp(-abs(sunPlane.x) * 18.0 / (0.08 + sunDown * 0.42))
-		* smoothstep(0.015, 0.12, sunDown)
-		* (1.0 - smoothstep(0.22, 0.92, sunDown));
 	float sunGlare = exp(-sunRadius * 11.0) * 0.22
-		+ sunSpokes * 0.42 + horizontalFlare * 0.10 + sunTail * 0.48;
+		+ sunSpokes * 0.42 + horizontalFlare * 0.10;
 
 	vec3 moonTangent = normalize(cross(moonDir, vec3(0.0, 1.0, 0.001)));
 	vec3 moonBitangent = normalize(cross(moonDir, moonTangent));
@@ -52,10 +48,7 @@ void main()
 	float moonRadius = length(moonPlane);
 	float dustNoise = 0.82 + 0.18 * sin(
 		direction.x * 91.0 + direction.y * 57.0 + direction.z * 73.0);
-	float moonDown = max(-moonPlane.y, 0.0);
-	float moonSpotlight = exp(-abs(moonPlane.x) * 14.0 / (0.10 + moonDown * 0.55))
-		* smoothstep(0.018, 0.10, moonDown)
-		* (1.0 - smoothstep(0.28, 0.88, moonDown)) * dustNoise;
+	float moonSpotlight = pow(max(moonAlignment, 0.0), 28.0) * dustNoise;
 	vec3 sunBody = vec3(1.0, 0.76, 0.30) * sunDisc
 		+ vec3(1.0, 0.96, 0.78) * sunCore + rayColor * sunGlow * 0.42;
 	vec3 moonBody = vec3(0.64, 0.73, 0.90) * moonDisc * (0.48 + moonShade * 0.52)

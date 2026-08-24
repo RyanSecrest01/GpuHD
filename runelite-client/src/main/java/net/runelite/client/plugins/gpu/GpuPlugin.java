@@ -211,6 +211,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniWaterOpacity;
 	private int uniLightningFlash;
 	private int uniWeatherModeMain;
+	private int uniCelestialRayStrength;
+	private int uniCelestialNightFactor;
 
 	private int interfaceTexture;
 	private int interfacePbo;
@@ -1059,6 +1061,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniWaterOpacity = glGetUniformLocation(glProgram, "waterOpacity");
 		uniLightningFlash = glGetUniformLocation(glProgram, "lightningFlash");
 		uniWeatherModeMain = glGetUniformLocation(glProgram, "weatherMode");
+		uniCelestialRayStrength = glGetUniformLocation(glProgram, "celestialRayStrength");
+		uniCelestialNightFactor = glGetUniformLocation(glProgram, "celestialNightFactor");
 		uniSmoothBanding = glGetUniformLocation(glProgram, "smoothBanding");
 		uniBrightness = glGetUniformLocation(glProgram, "brightness");
 		uniUseFog = glGetUniformLocation(glProgram, "useFog");
@@ -2440,6 +2444,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				cameraY,
 				cameraZ
 		);
+		SkyMode raySky = getEnvironmentSkyMode();
+		float celestialNight = raySky == SkyMode.NIGHT || raySky == SkyMode.COSMIC ? 1.0f
+			: raySky == SkyMode.SUNSET ? 0.18f : 0.0f;
+		glUniform1f(uniCelestialRayStrength,
+			config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f);
+		glUniform1f(uniCelestialNightFactor, celestialNight);
 
 		glUniform1i(
 				uniEnhancedWater,

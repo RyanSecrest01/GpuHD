@@ -42,6 +42,8 @@ uniform float waterStrength;
 uniform float waterOpacity;
 uniform float lightningFlash;
 uniform int weatherMode;
+uniform float celestialRayStrength;
+uniform float celestialNightFactor;
 uniform int tick;
 
 uniform sampler2D shadowMap;
@@ -529,6 +531,23 @@ void main()
                 1.0
         );
     }
+
+    // Camera-centered celestial scattering. Unlike the cubemap glare, this is
+    // evaluated on world fragments, so the cone stays aimed into the playable
+    // scene from the player's camera instead of sliding across the sky.
+	vec3 cameraRay = normalize(fWorldPos - cameraPosition);
+	vec3 scatteringDirection = normalize(vec3(
+		-lightDirection.x, lightDirection.y, -lightDirection.z));
+	float celestialAlignment = max(dot(cameraRay, scatteringDirection), 0.0);
+	float celestialDistance = length(fWorldPos - cameraPosition);
+	float celestialDepth = smoothstep(180.0, 2400.0, celestialDistance);
+	float sunCone = pow(celestialAlignment, 10.0) * celestialDepth;
+	float moonCone = pow(celestialAlignment, 18.0) * celestialDepth;
+	vec3 celestialColor = mix(vec3(1.0, 0.72, 0.38), vec3(0.38, 0.50, 0.78), celestialNightFactor);
+	float celestialCone = mix(sunCone * 0.18, moonCone * 0.11, celestialNightFactor)
+		* clamp(celestialRayStrength, 0.0, 2.0);
+	c.rgb += celestialColor * celestialCone * (0.35 + 0.65 * (1.0 - fFogAmount));
+	c.rgb = clamp(c.rgb, 0.0, 1.0);
 
     // ====================================================
     // Fog
