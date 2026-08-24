@@ -486,27 +486,85 @@ class SceneUploader
 		final int hsl3 = nwColor;
 
 		int tex = tile.getTexture() + 1;
-
+		int shoreEdges = 0;
+		if (isWaterTexture(tile.getTexture()))
+		{
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY) ? 1 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY) ? 2 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX, tileY - 1) ? 4 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX, tileY + 1) ? 8 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY - 1) ? 16 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY - 1) ? 32 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY + 1) ? 64 : 0;
+			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY + 1) ? 128 : 0;
+		}
 		vertexBuffer.put22224(lx2, ly2, lz2, hsl2);
-		vertexBuffer.put2222(tex, 256, 256, 0);
+		vertexBuffer.put2222(tex, 256, 256, shoreEdges);
 
 		vertexBuffer.put22224(lx3, ly3, lz3, hsl3);
-		vertexBuffer.put2222(tex, 0, 256, 0);
+		vertexBuffer.put2222(tex, 0, 256, shoreEdges);
 
 		vertexBuffer.put22224(lx1, ly1, lz1, hsl1);
-		vertexBuffer.put2222(tex, 256, 0, 0);
+		vertexBuffer.put2222(tex, 256, 0, shoreEdges);
 
 		vertexBuffer.put22224(lx0, ly0, lz0, hsl0);
-		vertexBuffer.put2222(tex, 0, 0, 0);
+		vertexBuffer.put2222(tex, 0, 0, shoreEdges);
 
 		vertexBuffer.put22224(lx1, ly1, lz1, hsl1);
-		vertexBuffer.put2222(tex, 256, 0, 0);
+		vertexBuffer.put2222(tex, 256, 0, shoreEdges);
 
 		vertexBuffer.put22224(lx3, ly3, lz3, hsl3);
-		vertexBuffer.put2222(tex, 0, 256, 0);
+		vertexBuffer.put2222(tex, 0, 256, shoreEdges);
 
 		return 6;
 	}
+
+	private static boolean isWaterTexture(int textureId)
+	{
+		return textureId == 1
+			|| textureId == 24
+			|| textureId == 25
+			|| textureId >= 130 && textureId <= 189
+			|| textureId == 208;
+	}
+
+	private static boolean isWaterTile(Scene scene, int tileZ, int tileX, int tileY)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		if (tileZ < 0 || tileZ >= tiles.length
+			|| tileX < 0 || tileX >= tiles[tileZ].length
+			|| tileY < 0 || tileY >= tiles[tileZ][tileX].length)
+		{
+			return false;
+		}
+
+		Tile neighbor = tiles[tileZ][tileX][tileY];
+		if (neighbor == null)
+		{
+			return false;
+		}
+
+		SceneTilePaint paint = neighbor.getSceneTilePaint();
+		if (paint != null && isWaterTexture(paint.getTexture()))
+		{
+			return true;
+		}
+
+		SceneTileModel model = neighbor.getSceneTileModel();
+		if (model != null && model.getTriangleTextureId() != null)
+		{
+			for (int textureId : model.getTriangleTextureId())
+			{
+				if (isWaterTexture(textureId))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 
 	private int upload(SceneTileModel sceneTileModel, int lx, int lz, GpuIntBuffer vertexBuffer)
 	{

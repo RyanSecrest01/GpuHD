@@ -272,6 +272,89 @@ class Zone
 		}
 	}
 
+	void renderShadow(
+			int zx,
+			int zz,
+			int minLevel,
+			int currentLevel,
+			int maxLevel,
+			Set<Integer> hiddenRoofIds,
+			int shadowBaseUniform)
+	{
+		drawOff.clear();
+		drawEnd.clear();
+
+		for (int level = minLevel; level <= maxLevel; ++level)
+		{
+			int[] rids = this.rids[level];
+			int[] roofStart = this.roofStart[level];
+			int[] roofEnd = this.roofEnd[level];
+
+			if (rids.length == 0 || hiddenRoofIds.isEmpty() || level <= currentLevel)
+			{
+				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
+				int end = this.levelOffsets[level];
+				pushRange(start, end);
+				continue;
+			}
+
+			for (int roofIdx = 0; roofIdx < rids.length; ++roofIdx)
+			{
+				int rid = rids[roofIdx];
+
+				if (rid > 0 && !hiddenRoofIds.contains(rid))
+				{
+					if (roofEnd[roofIdx] > roofStart[roofIdx])
+					{
+						pushRange(
+								roofStart[roofIdx],
+								roofEnd[roofIdx]
+						);
+					}
+				}
+			}
+
+			int endpos =
+					level == 0 ? 0 : this.levelOffsets[level - 1];
+
+			for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx)
+			{
+				int rid = rids[roofIdx];
+
+				if (rid > 0)
+				{
+					endpos = roofEnd[roofIdx];
+					break;
+				}
+			}
+
+			pushRange(
+					endpos,
+					this.levelOffsets[level]
+			);
+		}
+
+		convertForDraw(VERT_SIZE);
+
+		if (drawOff.limit() > 0)
+		{
+			glUniform3i(
+					shadowBaseUniform,
+					zx << 10,
+					0,
+					zz << 10
+			);
+
+			glBindVertexArray(glVao);
+
+			glMultiDrawArrays(
+					GL_TRIANGLES,
+					drawOff,
+					drawEnd
+			);
+		}
+	}
+
 	private static void pushRange(int start, int end)
 	{
 		assert end >= start;
