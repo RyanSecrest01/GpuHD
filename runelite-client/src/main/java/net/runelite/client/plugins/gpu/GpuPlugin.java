@@ -158,6 +158,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			.add(GL_VERTEX_SHADER, "sky_vert.glsl")
 			.add(GL_FRAGMENT_SHADER, "sky_frag.glsl");
 
+	static final Shader RAY_MASK_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "ray_mask_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "ray_mask_frag.glsl");
+
+	static final Shader RAY_BLUR_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "ray_fullscreen_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "ray_blur_frag.glsl");
+
+	static final Shader RAY_SCATTER_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "ray_fullscreen_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "ray_scatter_frag.glsl");
+
+	static final Shader RAY_APPLY_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "ray_fullscreen_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "ray_apply_frag.glsl");
+
 	static final Shader SHADOW_PROGRAM = new Shader()
 			.add(GL_VERTEX_SHADER, "shadow_vert.glsl")
 			.add(GL_FRAGMENT_SHADER, "shadow_frag.glsl");
@@ -176,6 +192,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int glShadowDebugProgram;
 
 	private int glSkyProgram;
+	private int glRayMaskProgram;
+	private int glRayBlurProgram;
+	private int glRayScatterProgram;
+	private int glRayApplyProgram;
 	private int glWeatherProgram;
 	private int uniWeatherProjection, uniWeatherCamera, uniWeatherTime;
 	private int uniWeatherRadius, uniWeatherFallSpeed, uniWeatherWind, uniWeatherStreakLength;
@@ -194,11 +214,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniSkyRayStrength;
 	private int uniSkyNightFactor;
 	private int uniSkyMoonDirection;
-	private int uniSkyRayOcclusionLightProj;
-	private int uniSkyCameraPosition;
-	private int uniSkyCelestialDirection;
-	private int uniSkyCelestialShadowsEnabled;
 	private int uniSkyCelestialVisibility;
+	private int uniRayMaskProjection;
+	private int uniRayMaskBase;
+	private int uniRayBlurAxis;
+	private int uniRayBlurFinalPass;
+	private int uniRayScatterLightUv;
+	private int uniRayApplyColor;
+	private int uniRayApplyStrength;
 
 	private int uniEnhancedColors;
 	private int uniSaturation;
@@ -244,7 +267,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	// =====================================================
 
 	private static final int SHADOW_MAP_SIZE = 4096;
-	private static final int RAY_OCCLUSION_MAP_SIZE = 512;
+	private static final int RAY_BUFFER_MAX_SIZE = 512;
+	private static final float RAY_SOURCE_MARGIN_FRACTION = 0.025f;
+	private static final float RAY_SOURCE_MIN_MARGIN_PIXELS = 12.0f;
+	private static final float RAY_SOURCE_MAX_MARGIN_PIXELS = 28.0f;
+	private static final float[] RAY_MASK_CLEAR = {1.0f, 0.0f, 0.0f, 0.0f};
 	private static final float[] MORNING_SUN = {0.65f, 0.55f, -0.52f};
 	private static final float[] NOON_SUN = {0.035f, 1.0f, -0.025f};
 	private static final float[] EVENING_SUN = {-0.65f, 0.48f, 0.52f};
@@ -266,8 +293,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private int shadowFbo;
 	private int shadowDepthTexture;
-	private int rayOcclusionFbo;
-	private int rayOcclusionDepthTexture;
+	private int rayMaskFbo;
+	private int rayMaskTexture;
+	private int rayScatterFbo;
+	private int rayScatterTexture;
+	private int rayBufferWidth;
+	private int rayBufferHeight;
+	private final int[] raySceneViewport = new int[4];
+	private final float[] raySourceUv = new float[2];
+	private boolean rayCompositeValid;
+	private float rayExposure;
 
 	private int textureArrayId;
 
@@ -363,7 +398,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniShadowsEnabled;
 	private int uniShadowStrength;
 	private final float[] currentShadowLightProj = new float[16];
-	private final float[] currentRayOcclusionLightProj = new float[16];
 
 	private int uniUseFog;
 	private int uniFogColor;
@@ -765,7 +799,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				UI_PROGRAM.compile(template);
 
 		glSkyProgram =
-				SKY_PROGRAM.compile(template, Map.of("rayOcclusionMap", 4));
+				SKY_PROGRAM.compile(template);
+
+		glRayMaskProgram =
+				RAY_MASK_PROGRAM.compile(template);
+
+		glRayBlurProgram =
+				RAY_BLUR_PROGRAM.compile(template, Map.of("sourceMask", 4));
+
+		glRayScatterProgram =
+				RAY_SCATTER_PROGRAM.compile(template, Map.of("visibilityMask", 4));
+
+		glRayApplyProgram =
+				RAY_APPLY_PROGRAM.compile(template, Map.of("rayIntensity", 4));
 
 		glShadowProgram =
 				SHADOW_PROGRAM.compile(template);
@@ -868,28 +914,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			shadowFbo,
 			SHADOW_MAP_SIZE,
 			currentShadowLightProj,
-			true
-		);
-	}
-
-	private void renderRayOcclusionMap(
-			Scene scene,
-			float cameraX,
-			float cameraY,
-			float cameraZ,
-			float[] sceneLightDirection)
-	{
-		renderLightDepthMap(
-			scene,
-			cameraX,
-			cameraY,
-			cameraZ,
-			sceneLightDirection[0],
-			sceneLightDirection[1],
-			sceneLightDirection[2],
-			rayOcclusionFbo,
-			RAY_OCCLUSION_MAP_SIZE,
-			currentRayOcclusionLightProj,
 			true
 		);
 	}
@@ -1141,6 +1165,213 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		checkGLErrors();
 	}
 
+	@VisibleForTesting
+	static boolean projectCelestialRaySource(
+		float[] cameraProjection,
+		float[] sceneDirection,
+		int viewportWidth,
+		int viewportHeight,
+		float[] targetUv)
+	{
+		float directionLength = (float) Math.sqrt(
+			sceneDirection[0] * sceneDirection[0]
+				+ sceneDirection[1] * sceneDirection[1]
+				+ sceneDirection[2] * sceneDirection[2]);
+		if (directionLength < 1e-6f)
+		{
+			return false;
+		}
+
+		// A direction has homogeneous W=0. Projecting it directly is exactly
+		// translation-independent and avoids subtracting two large camera values.
+		float clipX = cameraProjection[0] * sceneDirection[0]
+			+ cameraProjection[4] * sceneDirection[1]
+			+ cameraProjection[8] * sceneDirection[2];
+		float clipY = cameraProjection[1] * sceneDirection[0]
+			+ cameraProjection[5] * sceneDirection[1]
+			+ cameraProjection[9] * sceneDirection[2];
+		float clipW = cameraProjection[3] * sceneDirection[0]
+			+ cameraProjection[7] * sceneDirection[1]
+			+ cameraProjection[11] * sceneDirection[2];
+		if (!Float.isFinite(clipX)
+			|| !Float.isFinite(clipY)
+			|| !Float.isFinite(clipW))
+		{
+			return false;
+		}
+
+		float relativeX;
+		float relativeY;
+		float transverseMagnitude = Math.max(Math.abs(clipX), Math.abs(clipY));
+		if (clipW > 1e-6f && transverseMagnitude <= clipW)
+		{
+			relativeX = clipX / clipW * 0.5f;
+			relativeY = clipY / clipW * 0.5f;
+			targetUv[0] = relativeX + 0.5f;
+			targetUv[1] = relativeY + 0.5f;
+			return true;
+		}
+
+		if (transverseMagnitude
+			< Math.max(Math.abs(clipW), 1e-6f) * 1e-4f)
+		{
+			// Exactly opposite the camera has no unique 2D direction. Favor the top
+			// edge, which is stable and appropriate for an elevated sun or moon.
+			relativeX = 0.0f;
+			relativeY = 1.0f;
+		}
+		else
+		{
+			// Intersect the celestial screen direction with the nearest NDC edge.
+			// Never divide by a negative W: that would mirror rear-hemisphere light.
+			relativeX = clipX / transverseMagnitude;
+			relativeY = clipY / transverseMagnitude;
+		}
+
+		float safeWidth = Math.max(viewportWidth, 1);
+		float safeHeight = Math.max(viewportHeight, 1);
+		float edgeRadiusPixels = 0.5f * (float) Math.sqrt(
+			relativeX * relativeX * safeWidth * safeWidth
+				+ relativeY * relativeY * safeHeight * safeHeight);
+		float marginPixels = Math.max(
+			RAY_SOURCE_MIN_MARGIN_PIXELS,
+			Math.min(
+				RAY_SOURCE_MAX_MARGIN_PIXELS,
+				RAY_SOURCE_MARGIN_FRACTION * Math.min(safeWidth, safeHeight)));
+		float mappedMarginPixels = marginPixels;
+		if (clipW > 1e-6f)
+		{
+			float outsidePixels = Math.max(
+				(transverseMagnitude / clipW - 1.0f) * edgeRadiusPixels,
+				0.0f);
+			mappedMarginPixels = marginPixels
+				* (float) -Math.expm1(-outsidePixels / marginPixels);
+		}
+
+		float sourceScale = 1.0f + mappedMarginPixels
+			/ Math.max(edgeRadiusPixels, 1e-4f);
+		targetUv[0] = 0.5f + relativeX * sourceScale * 0.5f;
+		targetUv[1] = 0.5f + relativeY * sourceScale * 0.5f;
+		return Float.isFinite(targetUv[0]) && Float.isFinite(targetUv[1]);
+	}
+
+	private void restoreSceneStateAfterRays()
+	{
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboScene);
+		glViewport(
+			raySceneViewport[0],
+			raySceneViewport[1],
+			raySceneViewport[2],
+			raySceneViewport[3]);
+		glUseProgram(glProgram);
+		glBindVertexArray(0);
+		glDepthMask(true);
+		glDepthFunc(GL_GREATER);
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+		glBlendFuncSeparate(
+			GL_SRC_ALPHA,
+			GL_ONE_MINUS_SRC_ALPHA,
+			GL_ONE,
+			GL_ONE);
+	}
+
+	private void renderCelestialRayTexture(
+		Scene scene,
+		float[] cameraProjection,
+		float[] sceneDirection,
+		float exposure)
+	{
+		rayCompositeValid = false;
+		SceneContext ctx = context(scene);
+		if (ctx == null
+			|| raySceneViewport[2] <= 0
+			|| raySceneViewport[3] <= 0
+			|| exposure <= 0.0f
+			|| !projectCelestialRaySource(
+				cameraProjection,
+				sceneDirection,
+				raySceneViewport[2],
+				raySceneViewport[3],
+				raySourceUv))
+		{
+			return;
+		}
+
+		ensureRayBuffers(raySceneViewport[2], raySceneViewport[3]);
+		rayExposure = exposure;
+
+		glActiveTexture(GL_TEXTURE4);
+		glDepthMask(false);
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glViewport(0, 0, rayBufferWidth, rayBufferHeight);
+
+		// A is a camera-space visibility silhouette: white is open air and every
+		// roof-dominant static opaque caster writes black. No scene-depth resolve or
+		// temporal history is involved.
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rayMaskFbo);
+		glClearBufferfv(GL_COLOR, 0, RAY_MASK_CLEAR);
+		glUseProgram(glRayMaskProgram);
+		glUniformMatrix4fv(uniRayMaskProjection, false, cameraProjection);
+
+		int offset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? (SCENE_OFFSET >> 3) : 0;
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (zone.initialized)
+				{
+					zone.renderRoofDominantShadow(
+						zx - offset,
+						zz - offset,
+						ctx.minLevel,
+						ctx.maxLevel,
+						uniRayMaskBase);
+				}
+			}
+		}
+
+		glBindVertexArray(vaoUiHandle);
+
+		// A -> B: horizontal low-pass.
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rayScatterFbo);
+		glBindTexture(GL_TEXTURE_2D, rayMaskTexture);
+		glUseProgram(glRayBlurProgram);
+		glUniform2f(uniRayBlurAxis, 1.0f, 0.0f);
+		glUniform1i(uniRayBlurFinalPass, 0);
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+		// B -> A: vertical low-pass plus a soft silhouette threshold. Fine mesh
+		// details fade away while roofs, buildings, and trees remain broad blockers.
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rayMaskFbo);
+		glBindTexture(GL_TEXTURE_2D, rayScatterTexture);
+		glUniform2f(uniRayBlurAxis, 0.0f, 1.0f);
+		glUniform1i(uniRayBlurFinalPass, 1);
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+		// A -> B: deterministic low-resolution radial integration toward the
+		// projected sun or moon. B becomes the final one-channel ray intensity.
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rayScatterFbo);
+		glBindTexture(GL_TEXTURE_2D, rayMaskTexture);
+		glUseProgram(glRayScatterProgram);
+		glUniform2f(uniRayScatterLightUv, raySourceUv[0], raySourceUv[1]);
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+		// Restore the canonical state established by preSceneDrawToplevel.
+		// Avoid synchronous glGet state queries in this per-frame Mac hot path.
+		restoreSceneStateAfterRays();
+
+		rayCompositeValid = true;
+	}
+
 	private void initUniforms()
 	{
 		uniShadowMap = glGetUniformLocation(glProgram, "shadowMap");
@@ -1154,11 +1385,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniSkyRayStrength = glGetUniformLocation(glSkyProgram, "rayStrength");
 		uniSkyNightFactor = glGetUniformLocation(glSkyProgram, "nightFactor");
 		uniSkyMoonDirection = glGetUniformLocation(glSkyProgram, "moonDirection");
-		uniSkyRayOcclusionLightProj = glGetUniformLocation(glSkyProgram, "rayOcclusionLightProj");
-		uniSkyCameraPosition = glGetUniformLocation(glSkyProgram, "cameraPosition");
-		uniSkyCelestialDirection = glGetUniformLocation(glSkyProgram, "celestialDirection");
-		uniSkyCelestialShadowsEnabled = glGetUniformLocation(glSkyProgram, "celestialShadowsEnabled");
 		uniSkyCelestialVisibility = glGetUniformLocation(glSkyProgram, "celestialVisibility");
+		uniRayMaskProjection = glGetUniformLocation(glRayMaskProgram, "cameraProj");
+		uniRayMaskBase = glGetUniformLocation(glRayMaskProgram, "base");
+		uniRayBlurAxis = glGetUniformLocation(glRayBlurProgram, "blurAxis");
+		uniRayBlurFinalPass = glGetUniformLocation(glRayBlurProgram, "finalPass");
+		uniRayScatterLightUv = glGetUniformLocation(glRayScatterProgram, "lightUv");
+		uniRayApplyColor = glGetUniformLocation(glRayApplyProgram, "rayColor");
+		uniRayApplyStrength = glGetUniformLocation(glRayApplyProgram, "applyStrength");
 		uniWorldProj = glGetUniformLocation(glProgram, "worldProj");
 		uniEntityProj = glGetUniformLocation(glProgram, "entityProj");
 		uniEntityTint = glGetUniformLocation(glProgram, "entityTint");
@@ -1217,6 +1451,30 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void shutdownProgram()
 	{
+		if (glRayApplyProgram != 0)
+		{
+			glDeleteProgram(glRayApplyProgram);
+			glRayApplyProgram = 0;
+		}
+
+		if (glRayScatterProgram != 0)
+		{
+			glDeleteProgram(glRayScatterProgram);
+			glRayScatterProgram = 0;
+		}
+
+		if (glRayBlurProgram != 0)
+		{
+			glDeleteProgram(glRayBlurProgram);
+			glRayBlurProgram = 0;
+		}
+
+		if (glRayMaskProgram != 0)
+		{
+			glDeleteProgram(glRayMaskProgram);
+			glRayMaskProgram = 0;
+		}
+
 		if (glShadowDebugProgram != 0)
 		{
 			glDeleteProgram(glShadowDebugProgram);
@@ -1847,48 +2105,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			);
 		}
 
-		// Celestial shafts intentionally use a separate, aggressively reduced map.
-		// The detailed 4096 map remains nearest-filtered and unchanged for surfaces;
-		// this 512 map is linearly sampled and spatially filtered only by ray code.
-		rayOcclusionDepthTexture = glGenTextures();
-		glBindTexture(GL_TEXTURE_2D, rayOcclusionDepthTexture);
-		glTexImage2D(
-			GL_TEXTURE_2D,
-			0,
-			GL_DEPTH_COMPONENT24,
-			RAY_OCCLUSION_MAP_SIZE,
-			RAY_OCCLUSION_MAP_SIZE,
-			0,
-			GL_DEPTH_COMPONENT,
-			GL_FLOAT,
-			(ByteBuffer) null
-		);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-		rayOcclusionFbo = glGenFramebuffers();
-		glBindFramebuffer(GL_FRAMEBUFFER, rayOcclusionFbo);
-		glFramebufferTexture2D(
-			GL_FRAMEBUFFER,
-			GL_DEPTH_ATTACHMENT,
-			GL_TEXTURE_2D,
-			rayOcclusionDepthTexture,
-			0
-		);
-		glDrawBuffer(GL_NONE);
-		glReadBuffer(GL_NONE);
-
-		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE)
-		{
-			throw new RuntimeException(
-				"Ray occlusion framebuffer is incomplete. Status: " + status
-			);
-		}
-
-
 		// =====================================================
 		// Restore state
 		// =====================================================
@@ -1903,29 +2119,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				0
 		);
 
-		log.info(
-				"Initialized {}x{} shadow map and {}x{} ray occlusion map",
-				SHADOW_MAP_SIZE,
-				SHADOW_MAP_SIZE,
-				RAY_OCCLUSION_MAP_SIZE,
-				RAY_OCCLUSION_MAP_SIZE
-		);
+		log.info("Initialized {}x{} shadow map", SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
 	}
 
 	private void shutdownShadowMap()
 	{
-		if (rayOcclusionFbo != 0)
-		{
-			glDeleteFramebuffers(rayOcclusionFbo);
-			rayOcclusionFbo = 0;
-		}
-
-		if (rayOcclusionDepthTexture != 0)
-		{
-			glDeleteTextures(rayOcclusionDepthTexture);
-			rayOcclusionDepthTexture = 0;
-		}
-
 		if (shadowFbo != 0)
 		{
 			glDeleteFramebuffers(shadowFbo);
@@ -1937,6 +2135,120 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glDeleteTextures(shadowDepthTexture);
 			shadowDepthTexture = 0;
 		}
+	}
+
+	@VisibleForTesting
+	static int rayBufferDimension(int dimension, int longestDimension)
+	{
+		float scale = Math.min(
+			1.0f,
+			RAY_BUFFER_MAX_SIZE / (float) Math.max(longestDimension, 1));
+		return Math.max(1, Math.round(Math.max(dimension, 1) * scale));
+	}
+
+	private void configureRayTarget(int framebuffer, int texture, String label)
+	{
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_R8,
+			rayBufferWidth,
+			rayBufferHeight,
+			0,
+			GL_RED,
+			GL_UNSIGNED_BYTE,
+			(ByteBuffer) null);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D,
+			texture,
+			0);
+		glDrawBuffer(GL_COLOR_ATTACHMENT0);
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+		int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				label + " framebuffer is incomplete. Status: " + status);
+		}
+	}
+
+	private void ensureRayBuffers(int viewportWidth, int viewportHeight)
+	{
+		int longestDimension = Math.max(viewportWidth, viewportHeight);
+		int width = rayBufferDimension(viewportWidth, longestDimension);
+		int height = rayBufferDimension(viewportHeight, longestDimension);
+		if (rayMaskFbo != 0
+			&& rayScatterFbo != 0
+			&& width == rayBufferWidth
+			&& height == rayBufferHeight)
+		{
+			return;
+		}
+
+		shutdownRayBuffers();
+		rayBufferWidth = width;
+		rayBufferHeight = height;
+
+		int previousDrawFramebuffer = glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
+		int previousReadFramebuffer = glGetInteger(GL_READ_FRAMEBUFFER_BINDING);
+		int previousActiveTexture = glGetInteger(GL_ACTIVE_TEXTURE);
+		glActiveTexture(GL_TEXTURE4);
+		int previousRayTexture = glGetInteger(GL_TEXTURE_BINDING_2D);
+
+		rayMaskTexture = glGenTextures();
+		rayMaskFbo = glGenFramebuffers();
+		configureRayTarget(rayMaskFbo, rayMaskTexture, "Celestial ray mask");
+
+		rayScatterTexture = glGenTextures();
+		rayScatterFbo = glGenFramebuffers();
+		configureRayTarget(rayScatterFbo, rayScatterTexture, "Celestial ray scatter");
+
+		glBindTexture(GL_TEXTURE_2D, previousRayTexture);
+		glActiveTexture(previousActiveTexture);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, previousReadFramebuffer);
+
+		log.info(
+			"Initialized {}x{} camera-space celestial ray buffers",
+			rayBufferWidth,
+			rayBufferHeight);
+	}
+
+	private void shutdownRayBuffers()
+	{
+		if (rayMaskFbo != 0)
+		{
+			glDeleteFramebuffers(rayMaskFbo);
+			rayMaskFbo = 0;
+		}
+		if (rayScatterFbo != 0)
+		{
+			glDeleteFramebuffers(rayScatterFbo);
+			rayScatterFbo = 0;
+		}
+		if (rayMaskTexture != 0)
+		{
+			glDeleteTextures(rayMaskTexture);
+			rayMaskTexture = 0;
+		}
+		if (rayScatterTexture != 0)
+		{
+			glDeleteTextures(rayScatterTexture);
+			rayScatterTexture = 0;
+		}
+		rayBufferWidth = 0;
+		rayBufferHeight = 0;
+		rayCompositeValid = false;
 	}
 
 	private void initFbo(int width, int height, int aaSamples)
@@ -1985,6 +2297,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void shutdownFbo()
 	{
+		shutdownRayBuffers();
+
 		if (fboScene != -1)
 		{
 			glDeleteFramebuffers(fboScene);
@@ -2263,13 +2577,39 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		return frameEnvironment.skyMode;
 	}
 
+	private static float getCelestialVisibility(WeatherMode weather)
+	{
+		return weather == WeatherMode.STORM || weather == WeatherMode.BLIZZARD
+			? 0.08f
+			: weather == WeatherMode.RAIN
+				? 0.22f
+				: weather == WeatherMode.SNOW ? 0.30f : 1.0f;
+	}
+
+	private float getCelestialRayExposure(FrameEnvironment environment)
+	{
+		float configuredStrength = Math.min(
+			config.godRaysStrength() / 100.0f,
+			1.45f);
+		float[] direction = environment.activeSceneDirection;
+		float directionLength = (float) Math.sqrt(
+			direction[0] * direction[0]
+				+ direction[1] * direction[1]
+				+ direction[2] * direction[2]);
+		float elevation = directionLength > 1e-6f
+			? Math.abs(direction[1]) / directionLength : 1.0f;
+		float highSun = smoothStep((elevation - 0.50f) / 0.48f);
+		float elevationResponse = 1.0f - highSun * 0.35f;
+		float nightResponse = 1.0f - environment.nightFactor * 0.45f;
+		return configuredStrength
+			* getCelestialVisibility(config.weatherMode())
+			* elevationResponse
+			* nightResponse;
+	}
+
 	private void drawCustomSky(
-			float cameraX,
-			float cameraY,
-			float cameraZ,
 			float cameraPitch,
-			float cameraYaw,
-			boolean celestialShadowsActive)
+			float cameraYaw)
 	{
 		glUseProgram(glSkyProgram);
 
@@ -2365,26 +2705,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f
 		);
 		glUniform1f(uniSkyNightFactor, frameEnvironment.nightFactor);
-		glUniformMatrix4fv(
-			uniSkyRayOcclusionLightProj,
-			false,
-			currentRayOcclusionLightProj);
-		glUniform3f(uniSkyCameraPosition, cameraX, cameraY, cameraZ);
-		float[] activeCelestial = frameEnvironment.activeSceneDirection;
-		glUniform3f(
-			uniSkyCelestialDirection,
-			activeCelestial[0],
-			activeCelestial[1],
-			activeCelestial[2]);
-		glUniform1i(
-			uniSkyCelestialShadowsEnabled,
-			celestialShadowsActive ? 1 : 0);
-		float celestialVisibility = weather == WeatherMode.STORM
-			|| weather == WeatherMode.BLIZZARD ? 0.08f
-			: weather == WeatherMode.RAIN ? 0.22f
-			: weather == WeatherMode.SNOW ? 0.30f
-			: 1.0f;
-		glUniform1f(uniSkyCelestialVisibility, celestialVisibility);
+		glUniform1f(uniSkyCelestialVisibility, getCelestialVisibility(weather));
 
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(false);
@@ -2549,6 +2870,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 
 		glDpiAwareViewport(
+				raySceneViewport,
 				renderWidthOff,
 				renderCanvasHeight
 						- renderViewportHeight
@@ -2746,7 +3068,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			&& ((config.dynamicShadows()
 				&& (config.shadowStrength() > 0 || config.shadowDebug()))
 				|| lightningShadow);
-		boolean celestialShadowsActive = client.getGameState() == GameState.LOGGED_IN
+		boolean celestialRaysActive = client.getGameState() == GameState.LOGGED_IN
 			&& config.godRays()
 			&& config.godRaysStrength() > 0
 			&& environment.skyMode != SkyMode.OFF;
@@ -2908,15 +3230,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					environment.activeSceneDirection
 			);
 		}
-		if (celestialShadowsActive)
+		if (celestialRaysActive)
 		{
-			renderRayOcclusionMap(
+			renderCelestialRayTexture(
 				scene,
-					cameraX,
-					cameraY,
-					cameraZ,
-					environment.activeSceneDirection
-			);
+				projectionMatrix,
+				environment.activeSceneDirection,
+				getCelestialRayExposure(environment));
+		}
+		else
+		{
+			rayCompositeValid = false;
 		}
 
 // Back on normal shader now
@@ -2949,19 +3273,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				2
 		);
 
-		glActiveTexture(GL_TEXTURE4);
-		glBindTexture(GL_TEXTURE_2D, rayOcclusionDepthTexture);
-
 		glActiveTexture(GL_TEXTURE0);
 
 		drawSkybox(
 				sky,
-				cameraX,
-				cameraY,
-				cameraZ,
 				cameraPitch,
-				cameraYaw,
-				celestialShadowsActive
+				cameraYaw
 		);
 
 		// Reuse the selected sky cubemap as the wet-surface environment. Keep it
@@ -2978,12 +3295,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void drawSkybox(
 			int sky,
-			float cameraX,
-			float cameraY,
-			float cameraZ,
 			float cameraPitch,
-			float cameraYaw,
-			boolean celestialShadowsActive)
+			float cameraYaw)
 	{
 		// Normal RuneLite sky color
 		float skyR = ((sky >> 16) & 0xFF) / 255f;
@@ -2998,12 +3311,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		if (getEnvironmentSkyMode() != SkyMode.OFF)
 		{
 			drawCustomSky(
-				cameraX,
-				cameraY,
-				cameraZ,
 				cameraPitch,
-				cameraYaw,
-				celestialShadowsActive);
+				cameraYaw);
 		}
 		else
 		{
@@ -3012,11 +3321,56 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 	}
 
+	private void compositeCelestialRays()
+	{
+		if (!rayCompositeValid
+			|| rayScatterTexture == 0
+			|| glRayApplyProgram == 0)
+		{
+			return;
+		}
+		rayCompositeValid = false;
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboScene);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, rayScatterTexture);
+		glViewport(
+			raySceneViewport[0],
+			raySceneViewport[1],
+			raySceneViewport[2],
+			raySceneViewport[3]);
+		glUseProgram(glRayApplyProgram);
+		setEnvironmentRayColor(uniRayApplyColor);
+		glUniform1f(uniRayApplyStrength, rayExposure);
+
+		glDepthMask(false);
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+		// Screen blend adds light while preserving both scene detail and the scene
+		// alpha channel. The multisampled scene color never has to be sampled.
+		glBlendFuncSeparate(
+			GL_ONE_MINUS_DST_COLOR,
+			GL_ONE,
+			GL_ZERO,
+			GL_ONE);
+
+		glBindVertexArray(vaoUiHandle);
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+		// Restore the scene renderer's canonical state before weather draws. This
+		// avoids synchronous state queries on every frame while still containing all
+		// state touched by the custom pass.
+		restoreSceneStateAfterRays();
+	}
+
 	@Override
 	public void postSceneDraw(Scene scene)
 	{
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 		{
+			compositeCelestialRays();
 			drawWeather();
 			postDrawToplevel();
 		}
@@ -4365,13 +4719,30 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void glDpiAwareViewport(final int x, final int y, final int width, final int height)
 	{
+		glDpiAwareViewport(null, x, y, width, height);
+	}
+
+	private void glDpiAwareViewport(
+		final int[] actualViewport,
+		final int x,
+		final int y,
+		final int width,
+		final int height)
+	{
 		final GraphicsConfiguration graphicsConfiguration = clientUI.getGraphicsConfiguration();
 		final AffineTransform t = graphicsConfiguration.getDefaultTransform();
-		glViewport(
-			getScaledValue(t.getScaleX(), x),
-			getScaledValue(t.getScaleY(), y),
-			getScaledValue(t.getScaleX(), width),
-			getScaledValue(t.getScaleY(), height));
+		int scaledX = getScaledValue(t.getScaleX(), x);
+		int scaledY = getScaledValue(t.getScaleY(), y);
+		int scaledWidth = getScaledValue(t.getScaleX(), width);
+		int scaledHeight = getScaledValue(t.getScaleY(), height);
+		glViewport(scaledX, scaledY, scaledWidth, scaledHeight);
+		if (actualViewport != null)
+		{
+			actualViewport[0] = scaledX;
+			actualViewport[1] = scaledY;
+			actualViewport[2] = scaledWidth;
+			actualViewport[3] = scaledHeight;
+		}
 	}
 
 	private int getDrawDistance()

@@ -75,6 +75,14 @@ public class ShaderTest
 		Shader[] shaders = {
 			GpuPlugin.PROGRAM,
 			GpuPlugin.UI_PROGRAM,
+			GpuPlugin.SKY_PROGRAM,
+			GpuPlugin.RAY_MASK_PROGRAM,
+			GpuPlugin.RAY_BLUR_PROGRAM,
+			GpuPlugin.RAY_SCATTER_PROGRAM,
+			GpuPlugin.RAY_APPLY_PROGRAM,
+			GpuPlugin.SHADOW_PROGRAM,
+			GpuPlugin.SHADOW_DEBUG_PROGRAM,
+			GpuPlugin.WEATHER_PROGRAM,
 		};
 
 		for (Template t : templates)

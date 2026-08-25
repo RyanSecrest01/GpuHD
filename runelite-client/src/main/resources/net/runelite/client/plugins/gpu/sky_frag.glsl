@@ -5,61 +5,12 @@ in vec3 skyDirection;
 out vec4 fragColor;
 
 uniform samplerCube skyTexture;
-uniform sampler2D rayOcclusionMap;
-uniform mat4 rayOcclusionLightProj;
-uniform vec3 cameraPosition;
-uniform vec3 celestialDirection;
-uniform int celestialShadowsEnabled;
 uniform float celestialVisibility;
 uniform vec3 sunDirection;
 uniform vec3 rayColor;
 uniform float rayStrength;
 uniform float nightFactor;
 uniform vec3 moonDirection;
-
-// Three fixed samples put the low-frequency ray calculation in empty sky,
-// where shafts are visible, without temporal history or a full-screen blur.
-float sampleCelestialOcclusion(vec3 worldPosition)
-{
-	vec4 lightSpacePosition = rayOcclusionLightProj
-		* vec4(worldPosition, 1.0);
-	if (lightSpacePosition.w <= 0.0)
-	{
-		return 0.0;
-	}
-
-	vec3 shadowCoord = lightSpacePosition.xyz / lightSpacePosition.w;
-	shadowCoord = shadowCoord * 0.5 + 0.5;
-	if (shadowCoord.z < 0.0 || shadowCoord.z > 1.0)
-	{
-		return 0.0;
-	}
-
-	vec2 edgeDistance = min(shadowCoord.xy, vec2(1.0) - shadowCoord.xy);
-	float mapConfidence = smoothstep(
-		0.0, 0.055, min(edgeDistance.x, edgeDistance.y));
-	if (mapConfidence <= 0.0)
-	{
-		return 0.0;
-	}
-
-	float blockerDepth = texture(rayOcclusionMap, shadowCoord.xy).r;
-	float depthSeparation = shadowCoord.z - blockerDepth;
-	return smoothstep(0.0015, 0.0052, depthSeparation) * mapConfidence;
-}
-
-float traceCelestialOcclusion(vec3 viewRay)
-{
-	float nearOcclusion = sampleCelestialOcclusion(
-		cameraPosition + viewRay * 650.0);
-	float middleOcclusion = sampleCelestialOcclusion(
-		cameraPosition + viewRay * 1800.0);
-	float farOcclusion = sampleCelestialOcclusion(
-		cameraPosition + viewRay * 3800.0);
-	return nearOcclusion * 0.42
-		+ middleOcclusion * 0.36
-		+ farOcclusion * 0.22;
-}
 
 float ellipseMask(vec2 point, vec2 center, vec2 radii)
 {
@@ -150,32 +101,8 @@ void main()
 	skyColor += moonBloom * clamp(
 		vec3(1.0) - skyColor * 0.55, 0.16, 1.0);
 
-	vec3 activeCelestial = normalize(celestialDirection);
-	float celestialAlignment = max(dot(direction, activeCelestial), 0.0);
-	float dayPhase = pow(celestialAlignment, 4.6);
-	float nightPhase = pow(celestialAlignment, 5.4);
-	float phase = mix(dayPhase, nightPhase, nightFactor);
-	float shaftEnergy = phase * 0.014;
-
-	if (celestialShadowsEnabled != 0 && celestialAlignment > 0.45)
-	{
-		float occlusion = traceCelestialOcclusion(direction);
-		float openVolume = 1.0 - smoothstep(0.12, 0.82, occlusion);
-		float blockerOutline = pow(clamp(
-			4.0 * occlusion * (1.0 - occlusion), 0.0, 1.0), 1.25);
-		shaftEnergy = phase
-			* (0.014 + openVolume * 0.052 + blockerOutline * 0.058);
-	}
-
-	vec3 shaftColor = mix(
-		vec3(1.0, 0.67, 0.27),
-		vec3(0.36, 0.50, 0.82),
-		nightFactor);
-	skyColor += shaftColor * shaftEnergy * strength * celestialVisibility
-		* clamp(vec3(1.0) - skyColor * 0.62, 0.14, 1.0);
-
-	// Composite the expression last so the glare and low-frequency ray mask do
-	// not wash it out. The ink exists only inside the daytime sun body.
+	// Composite the expression last so the glare does not wash it out. The ink
+	// exists only inside the daytime sun body.
 	float sunFace = max(sunEyes, sunSmile) * sunDisc * dayVisibility;
 	skyColor = mix(
 		skyColor, vec3(0.43, 0.16, 0.025), sunFace * 0.78);

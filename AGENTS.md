@@ -60,6 +60,9 @@ Validate coordinate spaces, matrices, and depth conventions before using it to d
 RuneLite normal rendering uses reversed depth.
 The experimental shadow framebuffer currently uses conventional depth.
 
+Before modifying celestial rays, read `CELESTIAL_RAYS_HANDOFF.md` for the
+current prototype, known visual failure, and renderer invariants to preserve.
+
 ## Workflow
 
 Before editing:
