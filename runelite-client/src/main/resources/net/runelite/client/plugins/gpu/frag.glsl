@@ -29,12 +29,9 @@ uniform float saturation;
 uniform float contrast;
 
 // ========================================================
-// Directional lighting
+// Selective celestial effects
 // ========================================================
 
-uniform int dynamicLighting;
-uniform float lightIntensity;
-uniform float ambientLight;
 uniform vec3 lightDirection;
 uniform vec3 cameraPosition;
 uniform int enhancedWater;
@@ -44,7 +41,6 @@ uniform samplerCube environmentMap;
 uniform float lightningFlash;
 uniform int weatherMode;
 uniform float weatherTime;
-uniform float celestialRayStrength;
 uniform float celestialNightFactor;
 uniform int tick;
 
@@ -95,6 +91,14 @@ bool isWaterTexture(int textureIdx)
         || textureIdx == 208;
 }
 
+vec3 stableSurfaceNormal()
+{
+	vec3 geometricNormal = cross(dFdx(fWorldPos), dFdy(fWorldPos));
+	float normalLengthSquared = dot(geometricNormal, geometricNormal);
+	return normalLengthSquared > 1e-8
+		? geometricNormal * inversesqrt(normalLengthSquared)
+		: vec3(0.0, 1.0, 0.0);
+}
 
 void main()
 {
@@ -224,14 +228,22 @@ void main()
 			waveX * 0.075 + softWaveX * 0.035,
 			1.0,
 			waveZ * 0.075 + softWaveZ * 0.035));
-        vec3 viewDirection = normalize(cameraPosition - fWorldPos);
-        vec3 sunDirection = normalize(lightDirection);
+        // Horizontal RuneLite geometry is reoriented into the plugin's virtual
+        // +Y-up shading space, so its view vector must use that same convention.
+        vec3 viewDirection = normalize(fWorldPos - cameraPosition);
+        vec3 sunDirection = normalize(vec3(
+            -lightDirection.x,
+             lightDirection.y,
+            -lightDirection.z));
         float fresnel =
             pow(1.0 - max(dot(waterNormal, viewDirection), 0.0), 3.0);
         float sparkle =
             pow(max(dot(reflect(-sunDirection, waterNormal), viewDirection), 0.0), 96.0);
         float broadHighlight =
             pow(max(dot(reflect(-sunDirection, waterNormal), viewDirection), 0.0), 12.0);
+		vec3 waterReflectionShading = reflect(-viewDirection, waterNormal);
+		vec3 reflectedSky = texture(
+			environmentMap, -waterReflectionShading).rgb;
         vec3 waterTint =
             swampWater ? vec3(0.13, 0.19, 0.10) : vec3(0.34, 0.62, 0.67);
         float tintAmount =
@@ -286,6 +298,12 @@ void main()
 		c.rgb = mix(c.rgb, bankShelf,
 			shallowShelf * (0.34 + clarity * 0.46));
         c.rgb = mix(c.rgb, waterTint, tintAmount * min(strength, 1.0));
+		float skyReflectionAmount = (swampWater ? 0.65 : 1.0)
+			* (0.055 + fresnel * 0.26) * min(strength, 1.4);
+		c.rgb = mix(
+			c.rgb,
+			reflectedSky,
+			clamp(skyReflectionAmount, 0.0, 0.42));
 		c.rgb += vec3(0.58, 0.78, 0.70)
 			* caustic * shore * 0.055 * strength;
 		c.rgb += vec3(0.78, 0.94, 0.91) * shoreRipple * 0.13 * strength;
@@ -299,208 +317,178 @@ void main()
     }
 
 
-    // ====================================================
-    // CUSTOM: Directional surface lighting
-    // ====================================================
+	// ====================================================
+	// Selective shadows and material highlights
+	// ====================================================
 
-    float worldShadowVisibility = 1.0;
+	// RuneLite's stock texture/vertex color is authoritative. The shadow map is
+	// the only effect allowed to darken it, so flat terrain normals can no longer
+	// expose tile and triangle boundaries across the whole scene.
+	vec3 stockSurface = c.rgb;
+	float worldShadowVisibility = 1.0;
+	float worldShadowOcclusion = 0.0;
+	float configuredShadowOcclusion = 0.0;
 
-    if (dynamicLighting != 0)
-    {
-        /*
-         * Derive a flat surface normal from the triangle's
-         * world-space position.
-         *
-         * Unlike our old lighting formula, we will NOT
-         * aggressively brighten the texture.
-         *
-         * The sun-facing side stays close to its normal
-         * RuneLite brightness.
-         *
-         * Surfaces facing away become darker.
-         */
+	if (shadowsEnabled != 0)
+	{
+		vec4 lightSpacePos = shadowLightProj * vec4(fWorldPos, 1.0);
+		vec3 shadowCoord = lightSpacePos.xyz / lightSpacePos.w;
+		shadowCoord = shadowCoord * 0.5 + 0.5;
 
-        vec3 dx =
-            dFdx(fWorldPos);
-
-        vec3 dy =
-            dFdy(fWorldPos);
-
-        vec3 normal =
-            normalize(
-                cross(dx, dy)
-            );
-
-        /*
-         * Vertical RuneLite walls have normal.y very close to zero. Never use
-         * that noisy sign to orient the full normal or adjacent pixels can
-         * alternate between opposite lighting directions.
-         */
-        if (abs(normal.y) < 0.10)
-        {
-            normal = normalize(vec3(normal.x, 0.0, normal.z));
-        }
-        else if (normal.y < -0.10)
-        {
-            normal = -normal;
-        }
-
-		// Screen-space derivative normals use the opposite horizontal orientation
-		// from the shadow camera's world-space basis. Preserve the upward component
-		// while correcting X/Z so visible diffuse light agrees with cast shadows.
-		vec3 correctedLightDir = normalize(vec3(
-			-lightDirection.x,
-			 lightDirection.y,
-			-lightDirection.z));
-		// Vertical RuneScape wall faces retain the native world-axis convention,
-		// while derivative normals on terrain and foliage require corrected X/Z.
-		vec3 lightDir = abs(normal.y) < 0.10
-			? normalize(lightDirection)
-			: correctedLightDir;
-
-        /*
-         * How directly this surface faces the sun.
-         *
-         * 0 = facing away
-         * 1 = facing directly toward sun
-         */
-		float NdotL = max(dot(normal, lightDir), 0.0);
-
-        /*
-         * Smooth the transition.
-         *
-         * This avoids very harsh triangle-to-triangle
-         * changes on RuneScape's low-poly terrain.
-         */
-        float diffuse =
-            smoothstep(
-                0.05,
-                0.95,
-                NdotL
-            );
-
-        /*
-         * Convert our intensity slider into a sane range.
-         *
-         * 100 = full directional effect
-         * 50  = half effect
-         * Values above 100 add a stronger sun-facing highlight.
-         */
-        float strength =
-            clamp(
-                lightIntensity * 1.75,
-                0.0,
-                2.0
-            );
-
-        /*
-         * ambientLight controls the darkest possible face.
-         *
-         * Example:
-         *
-         * ambient = 0.65
-         *
-         * shadow side = 65% brightness
-         * sun side    = 100% brightness
-         *
-         * This preserves texture detail much better than
-         * boosting lit surfaces above their original color.
-         */
-        float shadowVisibility = 1.0;
-
-        if (shadowsEnabled != 0)
-        {
-            vec4 lightSpacePos =
-                shadowLightProj * vec4(fWorldPos, 1.0);
-            vec3 shadowCoord =
-                lightSpacePos.xyz / lightSpacePos.w;
-            shadowCoord = shadowCoord * 0.5 + 0.5;
-
-            if (
-                shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 &&
-                shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0 &&
-                shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0
-            )
-            {
-                vec2 texelSize =
-                    1.0 / vec2(textureSize(shadowMap, 0));
-                float bias =
-                    max(0.0025 * (1.0 - NdotL), 0.0005);
-                float occlusion = 0.0;
-
-				float receiverDistance = length(cameraPosition - fWorldPos);
-				float filterRadius = mix(
-					0.70,
-					1.35,
-					smoothstep(1152.0, 6144.0, receiverDistance));
-
-				for (int x = 0; x < 3; ++x)
-				{
-					for (int y = 0; y < 3; ++y)
-					{
-						vec2 filterOffset =
-							(vec2(float(x), float(y)) - vec2(1.0))
-							* texelSize
-							* filterRadius;
-                        float closestDepth =
-                            texture(
-                                shadowMap,
-                                shadowCoord.xy + filterOffset
-                            ).r;
-                        occlusion +=
-                            shadowCoord.z - bias > closestDepth ? 1.0 : 0.0;
-                    }
-                }
-
-				occlusion /= 9.0;
-                shadowVisibility =
-                    1.0 - occlusion * clamp(shadowStrength, 0.0, 0.8);
-            }
-        }
-		worldShadowVisibility = shadowVisibility;
-
-        /* Shadows remove direct sun only; ambient light remains intact. */
-        float directionalShade =
-            ambientLight
-            + (1.0 - ambientLight) * diffuse * shadowVisibility;
-
-        /*
-         * Blend between normal GPU appearance and
-         * directional shading.
-         */
-        float finalShade =
-            mix(
-                1.0,
-                directionalShade,
-                min(strength, 1.0)
-            )
-            + diffuse * shadowVisibility * strength * 0.20;
-
-		c.rgb *=
-			finalShade;
-
-		// Lightweight view-dependent reflection. Textured horizontal hard surfaces
-		// receive a restrained highlight; steep card-like foliage remains subdued.
-		if (!waterSurface)
+		if (
+			shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 &&
+			shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0 &&
+			shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0)
 		{
-			vec3 viewDir = normalize(cameraPosition - fWorldPos);
-			float reflectedLight = pow(
-				max(dot(reflect(-lightDir, normal), viewDir), 0.0), 52.0);
-			float hardSurface = fTextureId > 0
-				? mix(0.16, 0.62, smoothstep(0.08, 0.82, abs(normal.y)))
-				: 0.12;
-			c.rgb += vec3(1.0, 0.86, 0.62)
-				* reflectedLight * hardSurface * shadowVisibility
-				* min(strength, 1.35) * 0.22;
+			vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+			// Keep the receiver clear of its own neighboring PCF samples. The
+			// conventional light-depth span is 40,000 world units, so this is a
+			// restrained 16-unit floor: enough to remove OSRS terrain/roof acne
+			// without erasing the much deeper separation of real blockers.
+			float bias = 0.00040;
+			float occlusion = 0.0;
+			float receiverDistance = length(cameraPosition - fWorldPos);
+			float filterRadius = mix(
+				0.65,
+				0.95,
+				smoothstep(1152.0, 6144.0, receiverDistance));
+
+			for (int x = 0; x < 3; ++x)
+			{
+				for (int y = 0; y < 3; ++y)
+				{
+					vec2 filterOffset =
+						(vec2(float(x), float(y)) - vec2(1.0))
+						* texelSize * filterRadius;
+					float closestDepth = texture(
+						shadowMap, shadowCoord.xy + filterOffset).r;
+					occlusion += shadowCoord.z - bias > closestDepth
+						? 1.0 : 0.0;
+				}
+			}
+
+			occlusion = smoothstep(0.10, 0.90, occlusion / 9.0);
+			vec2 shadowEdgeDistance = min(
+				shadowCoord.xy, vec2(1.0) - shadowCoord.xy);
+			float shadowMapConfidence = smoothstep(
+				0.0, 0.035,
+				min(shadowEdgeDistance.x, shadowEdgeDistance.y));
+			worldShadowOcclusion = occlusion * shadowMapConfidence;
+			configuredShadowOcclusion = worldShadowOcclusion
+				* clamp(shadowStrength, 0.0, 0.80);
+
+			// Preserve the useful part of the mainline lighting model: a shadow
+			// removes only the direct celestial contribution while ambient texture
+			// detail survives. The mask supplies all diffuse directionality, so no
+			// per-triangle normal can relight the stock RuneLite surface.
+			vec3 dayShadowTransmission = vec3(0.44, 0.48, 0.55);
+			vec3 nightShadowTransmission = vec3(0.60, 0.65, 0.76);
+			vec3 shadowTransmission = mix(
+				dayShadowTransmission,
+				nightShadowTransmission,
+				celestialNightFactor);
+			vec3 shadowMultiplier = mix(
+				vec3(1.0), shadowTransmission, configuredShadowOcclusion);
+			c.rgb = stockSurface * shadowMultiplier;
+			worldShadowVisibility = dot(
+				shadowMultiplier, vec3(0.299, 0.587, 0.114));
+		}
+	}
+
+	// Reflections are additive and material-local. Their normals never multiply
+	// the base scene color, and broad horizontal reflection normals are smoothed
+	// toward the sky to keep low-poly ground and roofs visually cohesive.
+	if (!waterSurface)
+	{
+		vec3 normal = stableSurfaceNormal();
+		if (abs(normal.y) < 0.10)
+		{
+			normal = normalize(vec3(normal.x, 0.0, normal.z));
+		}
+		else if (normal.y < -0.10)
+		{
+			normal = -normal;
 		}
 
-        c.rgb =
-            clamp(
-                c.rgb,
-                0.0,
-                1.0
-            );
-    }
+		vec3 actualViewDir = normalize(cameraPosition - fWorldPos);
+		bool virtualShadingSpace = abs(normal.y) >= 0.10;
+		vec3 viewDir = virtualShadingSpace
+			? -actualViewDir : actualViewDir;
+		vec3 materialNormal = normal;
+		if (dot(materialNormal, viewDir) < 0.0)
+		{
+			materialNormal = -materialNormal;
+		}
+
+		float horizontalSurface = smoothstep(
+			0.08, 0.86, abs(materialNormal.y));
+		vec3 planarNormal = vec3(
+			0.0, materialNormal.y >= 0.0 ? 1.0 : -1.0, 0.0);
+		vec3 broadNormal = normalize(mix(
+			materialNormal, planarNormal, horizontalSurface * 0.80));
+		float hardSurface = fTextureId > 0
+			? mix(0.16, 0.82, horizontalSurface)
+			: mix(0.05, 0.22, horizontalSurface);
+		float NdotV = max(dot(broadNormal, viewDir), 0.0);
+		float surfaceFresnel = pow(1.0 - NdotV, 4.0);
+		vec3 reflectionShading = reflect(-viewDir, broadNormal);
+		vec3 reflectionDirection = virtualShadingSpace
+			? -reflectionShading : reflectionShading;
+		vec3 reflectedEnvironment = texture(
+			environmentMap, reflectionDirection).rgb;
+
+		float surfaceMaximum = max(
+			stockSurface.r, max(stockSurface.g, stockSurface.b));
+		float surfaceMinimum = min(
+			stockSurface.r, min(stockSurface.g, stockSurface.b));
+		float neutralMaterial = 1.0 - smoothstep(
+			0.12, 0.42, surfaceMaximum - surfaceMinimum);
+		float materialGloss = mix(0.38, 1.0, neutralMaterial);
+		float environmentMaterial = hardSurface * materialGloss;
+		float environmentAmount = environmentMaterial
+			* (0.016 + horizontalSurface * 0.065
+				+ surfaceFresnel * 0.14);
+		vec3 environmentHeadroom = clamp(
+			vec3(1.0) - c.rgb * 0.70, 0.12, 1.0);
+		c.rgb += reflectedEnvironment
+			* environmentAmount * environmentHeadroom;
+
+		vec3 materialLightDir = virtualShadingSpace
+			? normalize(vec3(
+				-lightDirection.x, lightDirection.y, -lightDirection.z))
+			: normalize(vec3(
+				lightDirection.x, -lightDirection.y, lightDirection.z));
+		vec3 halfVectorSum = materialLightDir + viewDir;
+		float halfVectorLength = dot(halfVectorSum, halfVectorSum);
+		vec3 halfVector = halfVectorLength > 1e-6
+			? halfVectorSum * inversesqrt(halfVectorLength)
+			: vec3(0.0);
+		float broadAlignment = max(dot(broadNormal, halfVector), 0.0);
+		float sharpAlignment = max(dot(materialNormal, halfVector), 0.0);
+		float broadSpecular = pow(broadAlignment, 18.0);
+		float sharpSpecular = pow(sharpAlignment, 72.0);
+		float materialNdotL = max(dot(broadNormal, materialLightDir), 0.0);
+		// Shadow strength is an artistic control for diffuse transmission; direct
+		// celestial glints still disappear behind a real geometric blocker.
+		float directVisibility = (1.0 - worldShadowOcclusion)
+			* smoothstep(0.04, 0.28, materialNdotL);
+		vec3 directReflectionColor = mix(
+			vec3(1.0, 0.88, 0.62),
+			vec3(0.52, 0.66, 1.0),
+			celestialNightFactor);
+		float celestialSpecularStrength = mix(
+			1.0, 0.32, celestialNightFactor);
+		float directReflection =
+			(broadSpecular * 0.080 + sharpSpecular * 0.34)
+			* hardSurface * materialGloss
+			* directVisibility * celestialSpecularStrength;
+		vec3 reflectionHeadroom = clamp(
+			vec3(1.0) - c.rgb * 0.45, 0.35, 1.0);
+		c.rgb += directReflectionColor
+			* directReflection * reflectionHeadroom;
+	}
+
+	c.rgb = clamp(c.rgb, 0.0, 1.0);
 
     // ====================================================
     // Rain-wet surfaces and lightweight ground impacts
@@ -508,7 +496,7 @@ void main()
 
 	if ((weatherMode == 1 || weatherMode == 2) && !waterSurface)
 	{
-		vec3 wetNormal = normalize(cross(dFdx(fWorldPos), dFdy(fWorldPos)));
+		vec3 wetNormal = stableSurfaceNormal();
 		if (wetNormal.y < 0.0)
 		{
 			wetNormal = -wetNormal;
@@ -517,7 +505,7 @@ void main()
 		float upwardSurface = smoothstep(0.18, 0.72, wetNormal.y);
 		float stormWetness = weatherMode == 2 ? 0.94 : 0.68;
 		float wetAmount = upwardSurface * stormWetness;
-		vec3 wetViewDirection = normalize(cameraPosition - fWorldPos);
+		vec3 wetViewDirection = normalize(fWorldPos - cameraPosition);
 		float wetFresnel = pow(
 			1.0 - max(dot(wetNormal, wetViewDirection), 0.0),
 			1.7);
@@ -529,7 +517,8 @@ void main()
 			reflect(-wetLightDirection, wetNormal),
 			wetViewDirection), 0.0), 12.0);
 		vec3 reflectionDirection = reflect(-wetViewDirection, wetNormal);
-		vec3 reflectedStormColor = texture(environmentMap, reflectionDirection).rgb;
+		vec3 reflectedStormColor = texture(
+			environmentMap, -reflectionDirection).rgb;
 		reflectedStormColor *= weatherMode == 2 ? 0.82 : 0.92;
 		reflectedStormColor += vec3(0.28, 0.38, 0.52) * lightningFlash * 0.65;
 
@@ -602,23 +591,6 @@ void main()
         );
     }
 
-    // Camera-centered celestial scattering. Unlike the cubemap glare, this is
-    // evaluated on world fragments, so the cone stays aimed into the playable
-    // scene from the player's camera instead of sliding across the sky.
-	vec3 cameraRay = normalize(fWorldPos - cameraPosition);
-	vec3 scatteringDirection = normalize(vec3(
-		-lightDirection.x, lightDirection.y, -lightDirection.z));
-	float celestialAlignment = max(dot(cameraRay, scatteringDirection), 0.0);
-	float celestialDistance = length(fWorldPos - cameraPosition);
-	float celestialDepth = smoothstep(180.0, 2400.0, celestialDistance);
-	float sunCone = pow(celestialAlignment, 10.0) * celestialDepth;
-	float moonCone = pow(celestialAlignment, 18.0) * celestialDepth;
-	vec3 celestialColor = mix(vec3(1.0, 0.72, 0.38), vec3(0.38, 0.50, 0.78), celestialNightFactor);
-	float celestialCone = mix(sunCone * 0.18, moonCone * 0.11, celestialNightFactor)
-		* clamp(celestialRayStrength, 0.0, 2.0);
-	c.rgb += celestialColor * celestialCone * (0.35 + 0.65 * (1.0 - fFogAmount));
-	c.rgb = clamp(c.rgb, 0.0, 1.0);
-
     // ====================================================
     // Fog
     // ====================================================
@@ -631,7 +603,7 @@ void main()
         );
 	if (weatherMode == 3 || weatherMode == 4)
 	{
-		vec3 snowNormal = normalize(cross(dFdx(fWorldPos), dFdy(fWorldPos)));
+		vec3 snowNormal = stableSurfaceNormal();
 		float upward = smoothstep(0.46, 0.86, abs(snowNormal.y));
 		float snowNoise = 0.88 + 0.12 * sin(fWorldPos.x * 0.031 + sin(fWorldPos.z * 0.019));
 		float accumulation = upward * snowNoise * (weatherMode == 4 ? 0.82 : 0.58);
@@ -664,6 +636,7 @@ void main()
 		float weatherHaze = smoothstep(350.0, 3300.0, weatherDistance) * weatherMist;
 		mixedColor = mix(mixedColor, weatherMistColor, weatherHaze);
 	}
+
 	float lightningVisibility = mix(0.16, 1.0, worldShadowVisibility);
 	mixedColor += vec3(0.68, 0.78, 1.0) * lightningFlash
 		* lightningVisibility * (0.32 + 0.68 * (1.0 - fFogAmount));

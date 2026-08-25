@@ -5,59 +5,180 @@ in vec3 skyDirection;
 out vec4 fragColor;
 
 uniform samplerCube skyTexture;
+uniform sampler2D rayOcclusionMap;
+uniform mat4 rayOcclusionLightProj;
+uniform vec3 cameraPosition;
+uniform vec3 celestialDirection;
+uniform int celestialShadowsEnabled;
+uniform float celestialVisibility;
 uniform vec3 sunDirection;
 uniform vec3 rayColor;
 uniform float rayStrength;
 uniform float nightFactor;
 uniform vec3 moonDirection;
 
+// Three fixed samples put the low-frequency ray calculation in empty sky,
+// where shafts are visible, without temporal history or a full-screen blur.
+float sampleCelestialOcclusion(vec3 worldPosition)
+{
+	vec4 lightSpacePosition = rayOcclusionLightProj
+		* vec4(worldPosition, 1.0);
+	if (lightSpacePosition.w <= 0.0)
+	{
+		return 0.0;
+	}
+
+	vec3 shadowCoord = lightSpacePosition.xyz / lightSpacePosition.w;
+	shadowCoord = shadowCoord * 0.5 + 0.5;
+	if (shadowCoord.z < 0.0 || shadowCoord.z > 1.0)
+	{
+		return 0.0;
+	}
+
+	vec2 edgeDistance = min(shadowCoord.xy, vec2(1.0) - shadowCoord.xy);
+	float mapConfidence = smoothstep(
+		0.0, 0.055, min(edgeDistance.x, edgeDistance.y));
+	if (mapConfidence <= 0.0)
+	{
+		return 0.0;
+	}
+
+	float blockerDepth = texture(rayOcclusionMap, shadowCoord.xy).r;
+	float depthSeparation = shadowCoord.z - blockerDepth;
+	return smoothstep(0.0015, 0.0052, depthSeparation) * mapConfidence;
+}
+
+float traceCelestialOcclusion(vec3 viewRay)
+{
+	float nearOcclusion = sampleCelestialOcclusion(
+		cameraPosition + viewRay * 650.0);
+	float middleOcclusion = sampleCelestialOcclusion(
+		cameraPosition + viewRay * 1800.0);
+	float farOcclusion = sampleCelestialOcclusion(
+		cameraPosition + viewRay * 3800.0);
+	return nearOcclusion * 0.42
+		+ middleOcclusion * 0.36
+		+ farOcclusion * 0.22;
+}
+
+float ellipseMask(vec2 point, vec2 center, vec2 radii)
+{
+	float ellipseDistance = length((point - center) / radii) - 1.0;
+	float antialiasWidth = max(fwidth(ellipseDistance) * 1.25, 0.012);
+	return 1.0 - smoothstep(
+		-antialiasWidth, antialiasWidth, ellipseDistance);
+}
+
 void main()
 {
-    vec3 direction =
-        normalize(skyDirection);
-
-    vec3 skyColor =
-        texture(skyTexture, direction).rgb;
+	vec3 direction = normalize(skyDirection);
+	vec3 skyColor = texture(skyTexture, direction).rgb;
 
 	vec3 sunDir = normalize(sunDirection);
 	vec3 moonDir = normalize(moonDirection);
 	float sunAlignment = dot(direction, sunDir);
 	float moonAlignment = dot(direction, moonDir);
-	float sunDisc = smoothstep(0.9960, 0.9982, sunAlignment);
-	float sunCore = smoothstep(0.9985, 0.9996, sunAlignment);
-	float sunGlow = pow(max(sunAlignment, 0.0), 68.0);
-	float moonDisc = smoothstep(0.9968, 0.9987, moonAlignment);
-	float moonShade = smoothstep(-0.35, 0.65,
-		dot(normalize(direction - moonDir * 0.992), normalize(vec3(-0.5, 0.7, 0.3))));
-	float moonGlow = pow(max(moonAlignment, 0.0), 95.0);
-	vec3 sunTangent = normalize(cross(sunDir, vec3(0.0, 1.0, 0.001)));
-	vec3 sunBitangent = normalize(cross(sunDir, sunTangent));
-	vec2 sunPlane = vec2(dot(direction, sunTangent), dot(direction, sunBitangent));
-	float sunRadius = length(sunPlane);
-	float sunAngle = atan(sunPlane.y, sunPlane.x);
-	float sunSpokes = pow(0.5 + 0.5 * cos(sunAngle * 8.0), 12.0)
-		* exp(-sunRadius * 13.0);
-	float horizontalFlare = exp(-abs(sunPlane.y) * 75.0)
-		* exp(-abs(sunPlane.x) * 5.0);
-	float sunGlare = exp(-sunRadius * 11.0) * 0.22
-		+ sunSpokes * 0.42 + horizontalFlare * 0.10;
+	float sunRadius = sqrt(max(
+		2.0 * (1.0 - clamp(sunAlignment, -1.0, 1.0)), 0.0));
+	float moonRadius = sqrt(max(
+		2.0 * (1.0 - clamp(moonAlignment, -1.0, 1.0)), 0.0));
+	float strength = clamp(rayStrength, 0.0, 1.45);
+	float dayVisibility = (1.0 - nightFactor) * celestialVisibility;
 
-	vec3 moonTangent = normalize(cross(moonDir, vec3(0.0, 1.0, 0.001)));
-	vec3 moonBitangent = normalize(cross(moonDir, moonTangent));
-	vec2 moonPlane = vec2(dot(direction, moonTangent), dot(direction, moonBitangent));
-	float moonRadius = length(moonPlane);
-	float dustNoise = 0.82 + 0.18 * sin(
-		direction.x * 91.0 + direction.y * 57.0 + direction.z * 73.0);
-	float moonSpotlight = pow(max(moonAlignment, 0.0), 28.0) * dustNoise;
-	vec3 sunBody = vec3(1.0, 0.76, 0.30) * sunDisc
-		+ vec3(1.0, 0.96, 0.78) * sunCore + rayColor * sunGlow * 0.42;
-	vec3 moonBody = vec3(0.64, 0.73, 0.90) * moonDisc * (0.48 + moonShade * 0.52)
-		+ vec3(0.42, 0.55, 0.82) * moonGlow * 0.24;
-	float strength = clamp(rayStrength, 0.0, 2.0);
-	skyColor += mix(sunBody, moonBody, nightFactor);
-	skyColor += mix(
-		vec3(1.0, 0.72, 0.34) * sunGlare,
-		vec3(0.38, 0.48, 0.72) * moonSpotlight * 0.46,
-		nightFactor) * strength;
-	fragColor = vec4(skyColor, 1.0);
+	// Screen-blended Gaussian glare stays smooth and visible even when celestial
+	// rays are disabled. It is radial only: no repeated spokes or angular cookie.
+	float sunDisc = 1.0 - smoothstep(0.066, 0.076, sunRadius);
+	float sunLimb = smoothstep(0.043, 0.070, sunRadius);
+	float tightGlare = exp2(-sunRadius * sunRadius * 180.0);
+	float wideGlare = exp2(-sunRadius * sunRadius * 18.0);
+	float glareResponse = 0.72 + strength * 0.22;
+	float glareEnergy = (tightGlare * 0.26 + wideGlare * 0.075)
+		* glareResponse * dayVisibility;
+	vec3 sunGlareColor = mix(
+		vec3(1.0, 0.72, 0.28), rayColor, 0.25);
+	skyColor += clamp(vec3(1.0) - skyColor, 0.0, 1.0)
+		* sunGlareColor * glareEnergy;
+
+	// A tiny, world-upright RuneScape sun face gives the body an identity while
+	// remaining stable under camera rotation. Use sky-up through the full orbit;
+	// only an exact zenith direction needs the alternate reference.
+	vec3 skyUp = vec3(0.0, -1.0, 0.0);
+	vec3 projectedFaceUp = skyUp - sunDir * dot(skyUp, sunDir);
+	if (dot(projectedFaceUp, projectedFaceUp) < 1e-6)
+	{
+		vec3 zenithReference = vec3(0.0, 0.0, 1.0);
+		projectedFaceUp = zenithReference
+			- sunDir * dot(zenithReference, sunDir);
+	}
+	vec3 faceUp = normalize(projectedFaceUp);
+	vec3 faceRight = normalize(cross(faceUp, sunDir));
+	vec2 faceUv = vec2(
+		dot(direction, faceRight), dot(direction, faceUp)) / 0.068;
+	float sunEyes = max(
+		ellipseMask(faceUv, vec2(-0.27, 0.18), vec2(0.072, 0.105)),
+		ellipseMask(faceUv, vec2(0.27, 0.18), vec2(0.072, 0.105)));
+	float smileCurve = -0.19 + 0.60 * faceUv.x * faceUv.x;
+	float smileStroke = 1.0 - smoothstep(
+		0.035, 0.060, abs(faceUv.y - smileCurve));
+	float smileWidth = 1.0 - smoothstep(0.34, 0.43, abs(faceUv.x));
+	float sunSmile = smileStroke * smileWidth;
+
+	vec3 sunBodyColor = mix(
+		vec3(1.0, 0.94, 0.62),
+		vec3(1.0, 0.72, 0.23),
+		sunLimb * 0.58);
+	float sunBodyOpacity = sunDisc * 0.97 * dayVisibility;
+	skyColor = mix(skyColor, sunBodyColor, sunBodyOpacity);
+
+	float moonDisc = 1.0 - smoothstep(0.052, 0.082, moonRadius);
+	float moonShade = smoothstep(-0.35, 0.65,
+		dot(normalize(direction - moonDir * 0.992),
+			normalize(vec3(-0.5, 0.7, 0.3))));
+	vec3 moonBodyColor = mix(
+		vec3(0.48, 0.58, 0.78),
+		vec3(0.88, 0.92, 1.0),
+		moonShade);
+	float moonBodyOpacity = moonDisc * (0.62 + moonShade * 0.28)
+		* nightFactor * celestialVisibility;
+	skyColor = mix(skyColor, moonBodyColor, moonBodyOpacity);
+
+	float moonInnerAura = exp(-moonRadius * 30.0);
+	float moonOuterAura = exp(-moonRadius * 10.0);
+	vec3 moonBloom = vec3(0.38, 0.50, 0.78)
+		* (moonInnerAura * 0.15 + moonOuterAura * 0.045)
+		* strength * nightFactor * celestialVisibility;
+	skyColor += moonBloom * clamp(
+		vec3(1.0) - skyColor * 0.55, 0.16, 1.0);
+
+	vec3 activeCelestial = normalize(celestialDirection);
+	float celestialAlignment = max(dot(direction, activeCelestial), 0.0);
+	float dayPhase = pow(celestialAlignment, 4.6);
+	float nightPhase = pow(celestialAlignment, 5.4);
+	float phase = mix(dayPhase, nightPhase, nightFactor);
+	float shaftEnergy = phase * 0.014;
+
+	if (celestialShadowsEnabled != 0 && celestialAlignment > 0.45)
+	{
+		float occlusion = traceCelestialOcclusion(direction);
+		float openVolume = 1.0 - smoothstep(0.12, 0.82, occlusion);
+		float blockerOutline = pow(clamp(
+			4.0 * occlusion * (1.0 - occlusion), 0.0, 1.0), 1.25);
+		shaftEnergy = phase
+			* (0.014 + openVolume * 0.052 + blockerOutline * 0.058);
+	}
+
+	vec3 shaftColor = mix(
+		vec3(1.0, 0.67, 0.27),
+		vec3(0.36, 0.50, 0.82),
+		nightFactor);
+	skyColor += shaftColor * shaftEnergy * strength * celestialVisibility
+		* clamp(vec3(1.0) - skyColor * 0.62, 0.14, 1.0);
+
+	// Composite the expression last so the glare and low-frequency ray mask do
+	// not wash it out. The ink exists only inside the daytime sun body.
+	float sunFace = max(sunEyes, sunSmile) * sunDisc * dayVisibility;
+	skyColor = mix(
+		skyColor, vec3(0.43, 0.16, 0.025), sunFace * 0.78);
+
+	fragColor = vec4(clamp(skyColor, 0.0, 1.0), 1.0);
 }

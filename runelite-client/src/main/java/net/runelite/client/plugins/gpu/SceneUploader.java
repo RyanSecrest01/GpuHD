@@ -90,6 +90,7 @@ class SceneUploader
 	{
 		int[][][] roofs = scene.getRoofs();
 		Set<Integer> roofIds = new HashSet<>();
+		zone.clearCoveredShadowRanges();
 
 		var vb = zone.vboO != null ? new GpuIntBuffer(zone.vboO.vb) : null;
 		var ab = zone.vboA != null ? new GpuIntBuffer(zone.vboA.vb) : null;
@@ -136,6 +137,8 @@ class SceneUploader
 				zone.levelOffsets[level] = pos;
 			}
 		}
+
+		zone.finalizeCoveredShadowRanges();
 	}
 
 	private void uploadZoneLevel(Scene scene, Zone zone, int mzx, int mzz, int level, boolean visbelow, Set<Integer> roofIds, GpuIntBuffer vb, GpuIntBuffer ab)
@@ -210,7 +213,16 @@ class SceneUploader
 					if (t != null)
 					{
 						this.rid = rid;
-						uploadZoneTile(scene, zone, t, vb, ab);
+						int coveredByRoofId = !isvisbelow
+							&& this.level < 3 && maplevel <= 3
+							? roofs[maplevel][msx][msz] : 0;
+						uploadZoneTile(
+							scene, zone, t, vb, ab,
+							this.level,
+							rid,
+							maplevel,
+							this.level + 1,
+							coveredByRoofId);
 					}
 				}
 			}
@@ -275,10 +287,21 @@ class SceneUploader
 		}
 	}
 
-	private int uploadZoneTile(Scene scene, Zone zone, Tile t, GpuIntBuffer vertexBuffer, GpuIntBuffer ab)
+	private int uploadZoneTile(
+		Scene scene,
+		Zone zone,
+		Tile t,
+		GpuIntBuffer vertexBuffer,
+		GpuIntBuffer ab,
+		int shadowLevel,
+		int roofGroupId,
+		int coveringRoofPlane,
+		int coveringRoofLevel,
+		int coveredByRoofId)
 	{
 		int len = 0;
 		boolean drawTile = renderCallbackManager.drawTile(scene, t);
+		int roofSurfaceStart = getOpaqueBufferPosition(zone);
 
 		SceneTilePaint paint = t.getSceneTilePaint();
 		if (paint != null && drawTile)
@@ -297,15 +320,22 @@ class SceneUploader
 			Point tilePoint = t.getSceneLocation();
 			len += upload(model, tilePoint.getX() << 7, tilePoint.getY() << 7, vertexBuffer);
 		}
+		if (roofGroupId > 0 && getOpaqueBufferPosition(zone) > roofSurfaceStart)
+		{
+			zone.addOpaqueRoofSurface(shadowLevel, roofGroupId);
+		}
 
 		WallObject wallObject = t.getWallObject();
 		if (wallObject != null && renderCallbackManager.drawObject(scene, wallObject))
 		{
+			int shadowStart = getOpaqueBufferPosition(zone);
 			Renderable renderable1 = wallObject.getRenderable1();
 			uploadZoneRenderable(renderable1, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject.getId(), vertexBuffer, ab);
 
 			Renderable renderable2 = wallObject.getRenderable2();
 			uploadZoneRenderable(renderable2, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject.getId(), vertexBuffer, ab);
+			recordCoveredStructureRange(
+				zone, shadowLevel, coveringRoofLevel, coveredByRoofId, shadowStart);
 		}
 
 		DecorativeObject decorativeObject = t.getDecorativeObject();
@@ -349,19 +379,101 @@ class SceneUploader
 			}
 
 			Renderable renderable = gameObject.getRenderable();
+			int shadowStart = getOpaqueBufferPosition(zone);
 			uploadZoneRenderable(renderable, zone, gameObject.getModelOrientation(), gameObject.getX(), gameObject.getZ(), gameObject.getY(),
 				min.getX(), min.getY(), max.getX(), max.getY(),
 				gameObject.getId(),
 				vertexBuffer, ab);
+			if (isFullyCoveredByRoof(
+				scene, t.getPlane(), coveringRoofPlane,
+				min, max, coveredByRoofId))
+			{
+				recordCoveredStructureRange(
+					zone, shadowLevel, coveringRoofLevel,
+					coveredByRoofId, shadowStart);
+			}
 		}
 
 		Tile bridge = t.getBridge();
 		if (bridge != null)
 		{
-			len += uploadZoneTile(scene, zone, bridge, vertexBuffer, ab);
+			// Bridge geometry can belong to a different roof plane. Preserve it
+			// unless it is uploaded through its own normal tile/roof grouping.
+			len += uploadZoneTile(
+				scene, zone, bridge, vertexBuffer, ab,
+				shadowLevel, 0, -1, -1, 0);
 		}
 
 		return len;
+	}
+
+	private static int getOpaqueBufferPosition(Zone zone)
+	{
+		return zone.vboO != null ? zone.vboO.vb.position() : 0;
+	}
+
+	private static void recordCoveredStructureRange(
+		Zone zone,
+		int shadowLevel,
+		int coveringRoofLevel,
+		int coveredByRoofId,
+		int shadowStart)
+	{
+		zone.addCoveredShadowRange(
+			shadowLevel,
+			coveringRoofLevel,
+			coveredByRoofId,
+			shadowStart,
+			getOpaqueBufferPosition(zone));
+	}
+
+	private static boolean isFullyCoveredByRoof(
+		Scene scene,
+		int logicalPlane,
+		int expectedRoofPlane,
+		Point min,
+		Point max,
+		int roofId)
+	{
+		int[][][] roofs = scene.getRoofs();
+		byte[][][] settings = scene.getExtendedTileSettings();
+		if (roofId <= 0 || expectedRoofPlane < 0
+			|| expectedRoofPlane >= roofs.length)
+		{
+			return false;
+		}
+
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int[][] planeRoofs = roofs[expectedRoofPlane];
+		for (int sceneX = min.getX(); sceneX <= max.getX(); ++sceneX)
+		{
+			int x = sceneX + sceneOffset;
+			if (x < 0 || x >= planeRoofs.length)
+			{
+				return false;
+			}
+
+			for (int sceneZ = min.getY(); sceneZ <= max.getY(); ++sceneZ)
+			{
+				int z = sceneZ + sceneOffset;
+				if (z < 0 || z >= planeRoofs[x].length
+					|| planeRoofs[x][z] != roofId)
+				{
+					return false;
+				}
+
+				boolean bridge = (settings[1][x][z]
+					& Constants.TILE_FLAG_BRIDGE) != 0;
+				int mapLevel = logicalPlane + (bridge ? 1 : 0);
+				if (mapLevel != expectedRoofPlane)
+				{
+					return false;
+				}
+			}
+		}
+
+		return true;
 	}
 
 	private void zoneRenderableSize(Zone z, Renderable r)

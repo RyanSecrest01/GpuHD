@@ -29,6 +29,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -74,6 +75,14 @@ class Zone
 	int[][] rids;
 	int[][] roofStart;
 	int[][] roofEnd;
+
+	/*
+	 * Opaque geometry remains in the normal Zone VBO. These ranges identify
+	 * lower-level tile geometry covered by a retained roof, allowing the light
+	 * depth pass to prefer one clean roof silhouette without copying vertices.
+	 */
+	final List<CoveredShadowRange> coveredShadowRanges = new ArrayList<>(0);
+	private final Set<Long> opaqueRoofSurfaces = new HashSet<>();
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 
@@ -126,6 +135,8 @@ class Zone
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
 		alphaModels.clear();
+		coveredShadowRanges.clear();
+		opaqueRoofSurfaces.clear();
 	}
 
 	void unmap()
@@ -182,9 +193,78 @@ class Zone
 		{
 			m.rid = (short) (int) updates.getOrDefault((int) m.rid, (int) m.rid);
 		}
+
 	}
 
-	private static final int NUM_DRAW_RANGES = 512;
+	void clearCoveredShadowRanges()
+	{
+		coveredShadowRanges.clear();
+		opaqueRoofSurfaces.clear();
+	}
+
+	void addOpaqueRoofSurface(int level, int rid)
+	{
+		if (level >= 0 && rid > 0)
+		{
+			opaqueRoofSurfaces.add(roofSurfaceKey(level, rid));
+		}
+	}
+
+	void addCoveredShadowRange(
+		int level,
+		int coveringLevel,
+		int rid,
+		int start,
+		int end)
+	{
+		if (coveringLevel < 0 || rid <= 0 || end <= start)
+		{
+			return;
+		}
+
+		int rangeCount = coveredShadowRanges.size();
+		if (rangeCount > 0)
+		{
+			CoveredShadowRange previous = coveredShadowRanges.get(rangeCount - 1);
+			if (previous.level == level
+				&& previous.coveringLevel == coveringLevel
+				&& previous.rid == rid
+				&& previous.end == start)
+			{
+				previous.end = end;
+				return;
+			}
+		}
+
+		coveredShadowRanges.add(new CoveredShadowRange(
+			level, coveringLevel, rid, start, end));
+	}
+
+	void finalizeCoveredShadowRanges()
+	{
+		// Never subtract a lower structure unless its replacement roof surface
+		// itself produced opaque geometry in this same zone.
+		for (int i = coveredShadowRanges.size() - 1; i >= 0; --i)
+		{
+			CoveredShadowRange range = coveredShadowRanges.get(i);
+			if (!opaqueRoofSurfaces.contains(
+				roofSurfaceKey(range.coveringLevel, range.rid)))
+			{
+				coveredShadowRanges.remove(i);
+			}
+		}
+		opaqueRoofSurfaces.clear();
+	}
+
+	private static long roofSurfaceKey(int level, int rid)
+	{
+		return ((long) level << 32) | (rid & 0xFFFFFFFFL);
+	}
+
+	// Covered structures can split a packed zone into many small complements.
+	// Keep enough room for every wall/object interval without dropping later
+	// casters; this is only 32 KiB across the two static integer buffers.
+	private static final int NUM_DRAW_RANGES = 4096;
 	private static final IntBuffer drawOff = BufferUtils.createIntBuffer(NUM_DRAW_RANGES);
 	private static final IntBuffer drawEnd = BufferUtils.createIntBuffer(NUM_DRAW_RANGES);
 
@@ -272,7 +352,7 @@ class Zone
 		}
 	}
 
-	void renderShadow(
+	void renderVisibleShadow(
 			int zx,
 			int zz,
 			int minLevel,
@@ -283,75 +363,149 @@ class Zone
 	{
 		drawOff.clear();
 		drawEnd.clear();
+		pushVisibleShadowRanges(
+			minLevel, currentLevel, maxLevel, hiddenRoofIds);
+		drawShadowRanges(zx, zz, shadowBaseUniform);
+	}
 
-		for (int level = minLevel; level <= maxLevel; ++level)
-		{
-			int[] rids = this.rids[level];
-			int[] roofStart = this.roofStart[level];
-			int[] roofEnd = this.roofEnd[level];
+	void renderRoofDominantShadow(
+			int zx,
+			int zz,
+			int minLevel,
+			int maxLevel,
+			int shadowBaseUniform)
+	{
+		drawOff.clear();
+		drawEnd.clear();
+		pushRoofDominantShadowRanges(minLevel, maxLevel);
+		drawShadowRanges(zx, zz, shadowBaseUniform);
+	}
 
-			if (rids.length == 0 || hiddenRoofIds.isEmpty() || level <= currentLevel)
-			{
-				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
-				int end = this.levelOffsets[level];
-				pushRange(start, end);
-				continue;
-			}
-
-			for (int roofIdx = 0; roofIdx < rids.length; ++roofIdx)
-			{
-				int rid = rids[roofIdx];
-
-				if (rid > 0 && !hiddenRoofIds.contains(rid))
-				{
-					if (roofEnd[roofIdx] > roofStart[roofIdx])
-					{
-						pushRange(
-								roofStart[roofIdx],
-								roofEnd[roofIdx]
-						);
-					}
-				}
-			}
-
-			int endpos =
-					level == 0 ? 0 : this.levelOffsets[level - 1];
-
-			for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx)
-			{
-				int rid = rids[roofIdx];
-
-				if (rid > 0)
-				{
-					endpos = roofEnd[roofIdx];
-					break;
-				}
-			}
-
-			pushRange(
-					endpos,
-					this.levelOffsets[level]
-			);
-		}
+	private void drawShadowRanges(int zx, int zz, int shadowBaseUniform)
+	{
 
 		convertForDraw(VERT_SIZE);
 
 		if (drawOff.limit() > 0)
 		{
-			glUniform3i(
-					shadowBaseUniform,
-					zx << 10,
-					0,
-					zz << 10
-			);
-
+			glUniform3i(shadowBaseUniform, zx << 10, 0, zz << 10);
 			glBindVertexArray(glVao);
+			glMultiDrawArrays(GL_TRIANGLES, drawOff, drawEnd);
+		}
+	}
 
-			glMultiDrawArrays(
-					GL_TRIANGLES,
-					drawOff,
-					drawEnd
-			);
+	private void pushVisibleShadowRanges(
+			int minLevel,
+			int currentLevel,
+			int maxLevel,
+			Set<Integer> hiddenRoofIds)
+	{
+		/*
+		 * Surface shadows must match RuneLite's visible scene. Invisible roofs are
+		 * useful as broad atmospheric blockers, but letting them cast into the
+		 * detailed map blankets interiors and nearby terrain with unseen geometry.
+		 */
+		for (int level = minLevel; level <= maxLevel; ++level)
+		{
+			int[] levelRoofIds = rids[level];
+			int[] levelRoofStarts = roofStart[level];
+			int[] levelRoofEnds = roofEnd[level];
+
+			if (levelRoofIds.length == 0
+				|| hiddenRoofIds.isEmpty()
+				|| level <= currentLevel)
+			{
+				int start = level == 0 ? 0 : levelOffsets[level - 1];
+				pushRange(start, levelOffsets[level]);
+				continue;
+			}
+
+			for (int roofIndex = 0; roofIndex < levelRoofIds.length; ++roofIndex)
+			{
+				int roofId = levelRoofIds[roofIndex];
+				if (roofId > 0 && !hiddenRoofIds.contains(roofId))
+				{
+					pushRange(
+						levelRoofStarts[roofIndex],
+						levelRoofEnds[roofIndex]);
+				}
+			}
+
+			int nonRoofStart = level == 0 ? 0 : levelOffsets[level - 1];
+			for (int roofIndex = levelRoofIds.length - 1;
+				roofIndex >= 0; --roofIndex)
+			{
+				if (levelRoofIds[roofIndex] > 0)
+				{
+					nonRoofStart = levelRoofEnds[roofIndex];
+					break;
+				}
+			}
+			pushRange(nonRoofStart, levelOffsets[level]);
+		}
+	}
+
+	private void pushRoofDominantShadowRanges(int minLevel, int maxLevel)
+	{
+		/*
+		 * Hidden roofs remain in this VBO. Draw every level while subtracting
+		 * only lower structural ranges covered by a retained opaque roof.
+		 * Terrain, ground objects, bridge geometry, and protruding multi-tile
+		 * objects continue to cast normally.
+		 */
+		for (int level = minLevel; level <= maxLevel; ++level)
+		{
+			int levelStart = level == 0 ? 0 : levelOffsets[level - 1];
+			int levelEnd = levelOffsets[level];
+			int cursor = levelStart;
+
+			for (CoveredShadowRange range : coveredShadowRanges)
+			{
+				if (range.level != level
+					|| range.coveringLevel < minLevel
+					|| range.coveringLevel > maxLevel
+					|| range.end <= levelStart
+					|| range.start >= levelEnd)
+				{
+					continue;
+				}
+
+				int coveredStart = Math.max(range.start, levelStart);
+				int coveredEnd = Math.min(range.end, levelEnd);
+				if (coveredStart > cursor)
+				{
+					pushRange(cursor, coveredStart);
+				}
+				cursor = Math.max(cursor, coveredEnd);
+			}
+
+			if (cursor < levelEnd)
+			{
+				pushRange(cursor, levelEnd);
+			}
+		}
+	}
+
+	private static class CoveredShadowRange
+	{
+		private final int level;
+		private final int coveringLevel;
+		private final int rid;
+		private final int start;
+		private int end;
+
+		private CoveredShadowRange(
+			int level,
+			int coveringLevel,
+			int rid,
+			int start,
+			int end)
+		{
+			this.level = level;
+			this.coveringLevel = coveringLevel;
+			this.rid = rid;
+			this.start = start;
+			this.end = end;
 		}
 	}
 

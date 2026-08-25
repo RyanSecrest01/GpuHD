@@ -182,7 +182,7 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 		keyName = "dayNightCycle",
 		name = "Day/night cycle",
-		description = "Automatically cycles the environment through day, sunset, night, and dawn.",
+		description = "Continuously moves the sun, moon, highlights, and shadows while cycling through day, sunset, night, and dawn.",
 		position = 7
 	)
 	default boolean dayNightCycle()
@@ -363,76 +363,35 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
-			keyName = "dynamicLighting",
-			name = "Dynamic lighting",
-			description = "Adds lightweight directional lighting to the world.",
-			position = 18
+			keyName = "dynamicShadows",
+			name = "Cast shadows",
+			description = "Adds selective cast shadows aligned with the visible sun or moon without relighting the whole world.",
+			position = 21
 	)
-	default boolean dynamicLighting()
+	default boolean dynamicShadows()
 	{
 		return true;
 	}
 
 	@Range(
 			min = 0,
-			max = 200
-	)
-	@ConfigItem(
-			keyName = "lightIntensity",
-			name = "Light intensity",
-			description = "Strength of directional lighting.",
-			position = 19
-	)
-	default int lightIntensity()
-	{
-		return 55;
-	}
-
-	@Range(
-			min = 0,
-			max = 150
-	)
-	@ConfigItem(
-			keyName = "ambientLight",
-			name = "Ambient light",
-			description = "Base brightness applied to all surfaces.",
-			position = 20
-	)
-	default int ambientLight()
-	{
-		return 80;
-	}
-
-	@ConfigItem(
-			keyName = "dynamicShadows",
-			name = "Dynamic shadows",
-			description = "Experimental soft directional shadows. Requires dynamic lighting.",
-			position = 21
-	)
-	default boolean dynamicShadows()
-	{
-		return false;
-	}
-
-	@Range(
-			min = 0,
-			max = 60
+			max = 80
 	)
 	@ConfigItem(
 			keyName = "shadowStrength",
 			name = "Shadow strength",
-			description = "Controls how much direct sunlight is removed inside shadows.",
+			description = "Controls the contrast of selective sun and moon cast shadows.",
 			position = 22
 	)
 	default int shadowStrength()
 	{
-		return 35;
+		return 40;
 	}
 
 	@ConfigItem(
 			keyName = "godRays",
 			name = "Celestial rays",
-			description = "Adds sun glare by day and a soft dusty moonlight cone at night.",
+			description = "Adds clean sun and moon shafts using a separate coarse blocker map. Surface shadows are unaffected.",
 			position = 23
 	)
 	default boolean godRays()
@@ -447,12 +406,12 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 			keyName = "godRaysStrength",
 			name = "Celestial ray strength",
-			description = "Controls sun glare and moonlight atmosphere intensity.",
+			description = "Controls directional sun and moon shaft intensity.",
 			position = 24
 	)
 	default int godRaysStrength()
 	{
-		return 120;
+		return 75;
 	}
 
 	@ConfigItem(
@@ -553,27 +512,13 @@ public interface GpuPluginConfig extends Config
 		return 55;
 	}
 
-	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects morning, overhead noon, or opposite evening sunlight. The day/night cycle overrides this.", position = 36)
+	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects a fixed morning, overhead noon, or evening light when the day/night cycle is disabled.", position = 36)
 	default SunPosition sunPosition()
 	{
 		return SunPosition.MORNING;
 	}
 
-	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightDirectLight", name = "Night direct light", description = "Moonlight strength during night and cosmic stages.", position = 37)
-	default int nightDirectLight()
-	{
-		return 28;
-	}
-
-	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightAmbientLight", name = "Night ambient light", description = "Ambient world brightness during night and cosmic stages.", position = 38)
-	default int nightAmbientLight()
-	{
-		return 42;
-	}
-
-	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects the nighttime moon and moonlight direction.", position = 39)
+	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects a fixed nighttime moonlight direction when the day/night cycle is disabled.", position = 39)
 	default MoonPosition moonPosition()
 	{
 		return MoonPosition.SOUTHEAST;

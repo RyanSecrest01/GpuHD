@@ -24,6 +24,7 @@
  */
 package net.runelite.client.plugins.gpu;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.primitives.Ints;
 import com.google.inject.Provides;
@@ -193,6 +194,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniSkyRayStrength;
 	private int uniSkyNightFactor;
 	private int uniSkyMoonDirection;
+	private int uniSkyRayOcclusionLightProj;
+	private int uniSkyCameraPosition;
+	private int uniSkyCelestialDirection;
+	private int uniSkyCelestialShadowsEnabled;
+	private int uniSkyCelestialVisibility;
 
 	private int uniEnhancedColors;
 	private int uniSaturation;
@@ -202,9 +208,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniShadowBase;
 	private int uniShadowDebugMap;
 
-	private int uniDynamicLighting;
-	private int uniLightIntensity;
-	private int uniAmbientLight;
 	private int uniLightDirection;
 	private int uniCameraPosition;
 	private int uniEnhancedWater;
@@ -214,7 +217,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniLightningFlash;
 	private int uniWeatherModeMain;
 	private int uniWeatherTimeMain;
-	private int uniCelestialRayStrength;
 	private int uniCelestialNightFactor;
 
 	private int interfaceTexture;
@@ -242,12 +244,30 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	// =====================================================
 
 	private static final int SHADOW_MAP_SIZE = 4096;
+	private static final int RAY_OCCLUSION_MAP_SIZE = 512;
 	private static final float[] MORNING_SUN = {0.65f, 0.55f, -0.52f};
 	private static final float[] NOON_SUN = {0.035f, 1.0f, -0.025f};
 	private static final float[] EVENING_SUN = {-0.65f, 0.48f, 0.52f};
+	private static final float CELESTIAL_PEAK_ELEVATION = (float) Math.toRadians(78.0);
+
+	private static final class FrameEnvironment
+	{
+		private boolean initialized;
+		private long timeMillis;
+		private SkyMode skyMode = SkyMode.OFF;
+		private float nightFactor;
+		private final float[] sunDirection = new float[3];
+		private final float[] moonDirection = new float[3];
+		private final float[] activeLightDirection = new float[3];
+		private final float[] activeSceneDirection = new float[3];
+	}
+
+	private final FrameEnvironment frameEnvironment = new FrameEnvironment();
 
 	private int shadowFbo;
 	private int shadowDepthTexture;
+	private int rayOcclusionFbo;
+	private int rayOcclusionDepthTexture;
 
 	private int textureArrayId;
 
@@ -342,7 +362,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniShadowLightProjMain;
 	private int uniShadowsEnabled;
 	private int uniShadowStrength;
-	private float[] currentShadowLightProj = new float[16];
+	private final float[] currentShadowLightProj = new float[16];
+	private final float[] currentRayOcclusionLightProj = new float[16];
 
 	private int uniUseFog;
 	private int uniFogColor;
@@ -744,7 +765,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				UI_PROGRAM.compile(template);
 
 		glSkyProgram =
-				SKY_PROGRAM.compile(template);
+				SKY_PROGRAM.compile(template, Map.of("rayOcclusionMap", 4));
 
 		glShadowProgram =
 				SHADOW_PROGRAM.compile(template);
@@ -784,10 +805,15 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		return m;
 	}
 
-	private static float[] makeLightViewRotation(float lightX, float lightY, float lightZ)
+	@VisibleForTesting
+	static float[] makeLightViewRotation(float lightX, float lightY, float lightZ)
 	{
 		float lightLength = (float) Math.sqrt(
 				lightX * lightX + lightY * lightY + lightZ * lightZ);
+		if (lightLength < 1e-6f)
+		{
+			return Mat4.identity();
+		}
 		float forwardX = -lightX / lightLength;
 		float forwardY = -lightY / lightLength;
 		float forwardZ = -lightZ / lightLength;
@@ -797,11 +823,20 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		float rightY = 0.0f;
 		float rightZ = forwardX;
 		float rightLength = (float) Math.sqrt(rightX * rightX + rightZ * rightZ);
-		rightX /= rightLength;
-		rightZ /= rightLength;
+		if (rightLength < 1e-4f)
+		{
+			rightX = 1.0f;
+			rightZ = 0.0f;
+		}
+		else
+		{
+			rightX /= rightLength;
+			rightZ /= rightLength;
+		}
 
 		float upX = -rightZ * forwardY;
-		float upY = forwardZ * rightX - forwardX * rightZ;
+		// up = right x forward. Reversing this Y component shears the light space.
+		float upY = rightZ * forwardX - rightX * forwardZ;
 		float upZ = rightX * forwardY;
 
 		return new float[]
@@ -817,9 +852,61 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			Scene scene,
 			float cameraX,
 			float cameraY,
-			float cameraZ)
+			float cameraZ,
+			float[] sceneLightDirection)
 	{
-		float[] sun = getActiveLightDirection();
+		// RuneLite hides roofs for readability, not because they stop blocking
+		// sunlight. Keep one roof-dominant caster set through that transition.
+		renderLightDepthMap(
+			scene,
+			cameraX,
+			cameraY,
+			cameraZ,
+			sceneLightDirection[0],
+			sceneLightDirection[1],
+			sceneLightDirection[2],
+			shadowFbo,
+			SHADOW_MAP_SIZE,
+			currentShadowLightProj,
+			true
+		);
+	}
+
+	private void renderRayOcclusionMap(
+			Scene scene,
+			float cameraX,
+			float cameraY,
+			float cameraZ,
+			float[] sceneLightDirection)
+	{
+		renderLightDepthMap(
+			scene,
+			cameraX,
+			cameraY,
+			cameraZ,
+			sceneLightDirection[0],
+			sceneLightDirection[1],
+			sceneLightDirection[2],
+			rayOcclusionFbo,
+			RAY_OCCLUSION_MAP_SIZE,
+			currentRayOcclusionLightProj,
+			true
+		);
+	}
+
+	private void renderLightDepthMap(
+			Scene scene,
+			float cameraX,
+			float cameraY,
+			float cameraZ,
+			float lightX,
+			float lightY,
+			float lightZ,
+			int depthFbo,
+			int depthMapSize,
+			float[] lightProjectionTarget,
+			boolean roofDominantCasters)
+	{
 		SceneContext ctx = context(scene);
 
 		if (ctx == null)
@@ -832,6 +919,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// =====================================================
 
 		int[] previousViewport = new int[4];
+		int previousDrawFramebuffer = glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
+		int previousReadFramebuffer = glGetInteger(GL_READ_FRAMEBUFFER_BINDING);
 
 		glGetIntegerv(
 				GL_VIEWPORT,
@@ -844,7 +933,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glBindFramebuffer(
 				GL_FRAMEBUFFER,
-				shadowFbo
+				depthFbo
 		);
 
 		// The shadow matrices use conventional OpenGL [-1, 1] clip depth.
@@ -857,8 +946,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glViewport(
 				0,
 				0,
-				SHADOW_MAP_SIZE,
-				SHADOW_MAP_SIZE
+				depthMapSize,
+				depthMapSize
 		);
 
 		/*
@@ -889,7 +978,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		 */
 		float shadowRadius =
 				58.0f * Perspective.LOCAL_TILE_SIZE;
-		float shadowTexelSize = 2.0f * shadowRadius / SHADOW_MAP_SIZE;
+		float shadowTexelSize = 2.0f * shadowRadius / depthMapSize;
 		float shadowCenterX = Math.round(cameraX / shadowTexelSize) * shadowTexelSize;
 		float shadowCenterY = Math.round(cameraY / shadowTexelSize) * shadowTexelSize;
 		float shadowCenterZ = Math.round(cameraZ / shadowTexelSize) * shadowTexelSize;
@@ -923,7 +1012,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		Mat4.mul(
 				lightProjection,
-				makeLightViewRotation(sun[0], sun[1], sun[2])
+				makeLightViewRotation(lightX, lightY, lightZ)
 		);
 
 		/*
@@ -946,7 +1035,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		System.arraycopy(
 				lightProjection,
 				0,
-				currentShadowLightProj,
+				lightProjectionTarget,
 				0,
 				16
 		);
@@ -979,15 +1068,26 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					continue;
 				}
 
-				zone.renderShadow(
+				if (roofDominantCasters)
+				{
+					zone.renderRoofDominantShadow(
+						zx - offset,
+						zz - offset,
+						ctx.minLevel,
+						ctx.maxLevel,
+						uniShadowBase);
+				}
+				else
+				{
+					zone.renderVisibleShadow(
 						zx - offset,
 						zz - offset,
 						ctx.minLevel,
 						ctx.level,
 						ctx.maxLevel,
 						ctx.hideRoofIds,
-						uniShadowBase
-				);
+						uniShadowBase);
+				}
 			}
 		}
 
@@ -997,12 +1097,15 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glBindVertexArray(0);
 
-		/*
-		 * Go back to RuneLite's normal scene framebuffer.
-		 */
+		// Restore both bindings exactly; depth-only passes must not leak their read
+		// framebuffer into RuneLite's later scene resolve.
 		glBindFramebuffer(
 				GL_DRAW_FRAMEBUFFER,
-				fboScene
+				previousDrawFramebuffer
+		);
+		glBindFramebuffer(
+				GL_READ_FRAMEBUFFER,
+				previousReadFramebuffer
 		);
 
 		glUseProgram(
@@ -1051,6 +1154,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniSkyRayStrength = glGetUniformLocation(glSkyProgram, "rayStrength");
 		uniSkyNightFactor = glGetUniformLocation(glSkyProgram, "nightFactor");
 		uniSkyMoonDirection = glGetUniformLocation(glSkyProgram, "moonDirection");
+		uniSkyRayOcclusionLightProj = glGetUniformLocation(glSkyProgram, "rayOcclusionLightProj");
+		uniSkyCameraPosition = glGetUniformLocation(glSkyProgram, "cameraPosition");
+		uniSkyCelestialDirection = glGetUniformLocation(glSkyProgram, "celestialDirection");
+		uniSkyCelestialShadowsEnabled = glGetUniformLocation(glSkyProgram, "celestialShadowsEnabled");
+		uniSkyCelestialVisibility = glGetUniformLocation(glSkyProgram, "celestialVisibility");
 		uniWorldProj = glGetUniformLocation(glProgram, "worldProj");
 		uniEntityProj = glGetUniformLocation(glProgram, "entityProj");
 		uniEntityTint = glGetUniformLocation(glProgram, "entityTint");
@@ -1059,9 +1167,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniShadowBase = glGetUniformLocation(glShadowProgram, "base");
 		uniSaturation = glGetUniformLocation(glProgram, "saturation");
 		uniContrast = glGetUniformLocation(glProgram, "contrast");
-		uniDynamicLighting = glGetUniformLocation(glProgram, "dynamicLighting");
-		uniLightIntensity = glGetUniformLocation(glProgram, "lightIntensity");
-		uniAmbientLight = glGetUniformLocation(glProgram, "ambientLight");
 		uniLightDirection = glGetUniformLocation(glProgram, "lightDirection");
 		uniCameraPosition = glGetUniformLocation(glProgram, "cameraPosition");
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
@@ -1071,7 +1176,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniLightningFlash = glGetUniformLocation(glProgram, "lightningFlash");
 		uniWeatherModeMain = glGetUniformLocation(glProgram, "weatherMode");
 		uniWeatherTimeMain = glGetUniformLocation(glProgram, "weatherTime");
-		uniCelestialRayStrength = glGetUniformLocation(glProgram, "celestialRayStrength");
 		uniCelestialNightFactor = glGetUniformLocation(glProgram, "celestialNightFactor");
 		uniSmoothBanding = glGetUniformLocation(glProgram, "smoothBanding");
 		uniBrightness = glGetUniformLocation(glProgram, "brightness");
@@ -1505,14 +1609,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			);
 
 			/*
-			 * Caps.
-			 * Their exact orientation matters much less for OSRS.
-			 * We can tune them later.
+			 * RuneLite's visible zenith is cubemap -Y. Keep all four calibrated
+			 * wall assignments above untouched and map only the clouded TOP atlas
+			 * cell to the overhead cap.
 			 */
 			uploadCubemapFace(
 					image,
 					GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
-					1,
+					0,
 					0,
 					faceWidth
 			);
@@ -1520,7 +1624,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			uploadCubemapFace(
 					image,
 					GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
-					0,
+					1,
 					0,
 					faceWidth
 			);
@@ -1743,6 +1847,47 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			);
 		}
 
+		// Celestial shafts intentionally use a separate, aggressively reduced map.
+		// The detailed 4096 map remains nearest-filtered and unchanged for surfaces;
+		// this 512 map is linearly sampled and spatially filtered only by ray code.
+		rayOcclusionDepthTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, rayOcclusionDepthTexture);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_DEPTH_COMPONENT24,
+			RAY_OCCLUSION_MAP_SIZE,
+			RAY_OCCLUSION_MAP_SIZE,
+			0,
+			GL_DEPTH_COMPONENT,
+			GL_FLOAT,
+			(ByteBuffer) null
+		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		rayOcclusionFbo = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, rayOcclusionFbo);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D,
+			rayOcclusionDepthTexture,
+			0
+		);
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				"Ray occlusion framebuffer is incomplete. Status: " + status
+			);
+		}
+
 
 		// =====================================================
 		// Restore state
@@ -1759,14 +1904,28 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		);
 
 		log.info(
-				"Initialized {}x{} shadow map",
+				"Initialized {}x{} shadow map and {}x{} ray occlusion map",
 				SHADOW_MAP_SIZE,
-				SHADOW_MAP_SIZE
+				SHADOW_MAP_SIZE,
+				RAY_OCCLUSION_MAP_SIZE,
+				RAY_OCCLUSION_MAP_SIZE
 		);
 	}
 
 	private void shutdownShadowMap()
 	{
+		if (rayOcclusionFbo != 0)
+		{
+			glDeleteFramebuffers(rayOcclusionFbo);
+			rayOcclusionFbo = 0;
+		}
+
+		if (rayOcclusionDepthTexture != 0)
+		{
+			glDeleteTextures(rayOcclusionDepthTexture);
+			rayOcclusionDepthTexture = 0;
+		}
+
 		if (shadowFbo != 0)
 		{
 			glDeleteFramebuffers(shadowFbo);
@@ -1886,7 +2045,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void setEnvironmentRayColor(int uniform)
 	{
-		SkyMode environmentSky = getEnvironmentSkyMode();
+		ensureFrameEnvironment();
+		SkyMode environmentSky = frameEnvironment.skyMode;
 		float rayR = 1.0f;
 		float rayG = 0.82f;
 		float rayB = 0.55f;
@@ -1912,7 +2072,56 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform3f(uniform, rayR, rayG, rayB);
 	}
 
-	private SkyMode getEnvironmentSkyMode()
+	private static float smoothStep(float value)
+	{
+		float t = Math.max(0.0f, Math.min(1.0f, value));
+		return t * t * (3.0f - 2.0f * t);
+	}
+
+	private static void copyDirection(float[] source, float[] target)
+	{
+		System.arraycopy(source, 0, target, 0, 3);
+	}
+
+	private static void setArcDirection(
+			float[] target,
+			float[] start,
+			float[] end,
+			float progress)
+	{
+		float t = smoothStep(progress);
+		double startAzimuth = Math.atan2(start[2], start[0]);
+		double endAzimuth = Math.atan2(end[2], end[0]);
+		while (endAzimuth <= startAzimuth)
+		{
+			endAzimuth += Math.PI * 2.0;
+		}
+
+		double startElevation = Math.atan2(
+			start[1], Math.sqrt(start[0] * start[0] + start[2] * start[2]));
+		double endElevation = Math.atan2(
+			end[1], Math.sqrt(end[0] * end[0] + end[2] * end[2]));
+		double baseElevation = startElevation + (endElevation - startElevation) * t;
+		double elevation = baseElevation
+			+ Math.sin(Math.PI * t) * (CELESTIAL_PEAK_ELEVATION - baseElevation);
+		double azimuth = startAzimuth + (endAzimuth - startAzimuth) * t;
+		double horizontal = Math.cos(elevation);
+
+		target[0] = (float) (horizontal * Math.cos(azimuth));
+		target[1] = (float) Math.sin(elevation);
+		target[2] = (float) (horizontal * Math.sin(azimuth));
+	}
+
+	private static float getStaticNightFactor(SkyMode skyMode)
+	{
+		if (skyMode == SkyMode.NIGHT || skyMode == SkyMode.COSMIC)
+		{
+			return 1.0f;
+		}
+		return skyMode == SkyMode.SUNSET ? 0.18f : 0.0f;
+	}
+
+	private SkyMode resolveEnvironmentSkyMode(double cyclePhase)
 	{
 		WeatherMode weather = config.weatherMode();
 		if (weather == WeatherMode.STORM)
@@ -1938,56 +2147,129 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			return config.skyMode();
 		}
 
-		long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
-		double phase = (System.currentTimeMillis() % cycleMillis) / (double) cycleMillis;
-		if (phase < 0.35)
+		if (cyclePhase < 0.35)
 		{
 			return SkyMode.DAY;
 		}
-		if (phase < 0.50)
+		if (cyclePhase < 0.50)
 		{
 			return SkyMode.SUNSET;
 		}
-		if (phase < 0.85)
+		if (cyclePhase < 0.85)
 		{
 			return SkyMode.NIGHT;
 		}
 		return SkyMode.SUNSET;
 	}
 
-	private float[] getSunDirection()
+	private FrameEnvironment updateFrameEnvironment(long timeMillis)
 	{
-		SunPosition position = config.sunPosition();
-		if (config.dayNightCycle())
+		FrameEnvironment environment = frameEnvironment;
+		environment.initialized = true;
+		environment.timeMillis = timeMillis;
+
+		boolean cycleEnabled = config.dayNightCycle();
+		long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
+		double phase = cycleEnabled
+			? (timeMillis % cycleMillis) / (double) cycleMillis : 0.0;
+		environment.skyMode = resolveEnvironmentSkyMode(phase);
+
+		if (cycleEnabled)
 		{
-			long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
-			double phase = (System.currentTimeMillis() % cycleMillis) / (double) cycleMillis;
-			position = phase < 0.16 || phase >= 0.88 ? SunPosition.MORNING
-				: phase < 0.40 ? SunPosition.NOON : SunPosition.EVENING;
+			if (phase < 0.50)
+			{
+				setArcDirection(
+					environment.sunDirection,
+					MORNING_SUN,
+					EVENING_SUN,
+					(float) (phase / 0.50));
+			}
+			else if (phase < 0.85)
+			{
+				setArcDirection(
+					environment.sunDirection,
+					EVENING_SUN,
+					MORNING_SUN,
+					(float) ((phase - 0.50) / 0.35));
+			}
+			else
+			{
+				copyDirection(MORNING_SUN, environment.sunDirection);
+			}
+			// Only one celestial body is visible at a time. Sharing the continuous
+			// orbit keeps weather-forced day/night modes free of hidden reset jumps.
+			copyDirection(environment.sunDirection, environment.moonDirection);
+
+			if (config.weatherMode() == WeatherMode.CLEAR)
+			{
+				if (phase < 0.35)
+				{
+					environment.nightFactor = 0.0f;
+				}
+				else if (phase < 0.50)
+				{
+					environment.nightFactor = smoothStep(
+						(float) ((phase - 0.35) / 0.15));
+				}
+				else if (phase < 0.85)
+				{
+					environment.nightFactor = 1.0f;
+				}
+				else
+				{
+					environment.nightFactor = 1.0f - smoothStep(
+						(float) ((phase - 0.85) / 0.15));
+				}
+			}
+			else
+			{
+				environment.nightFactor = getStaticNightFactor(environment.skyMode);
+			}
 		}
-		return position == SunPosition.NOON ? NOON_SUN
-			: position == SunPosition.EVENING ? EVENING_SUN : MORNING_SUN;
+		else
+		{
+			SunPosition sunPosition = config.sunPosition();
+			float[] selectedSun = sunPosition == SunPosition.NOON ? NOON_SUN
+				: sunPosition == SunPosition.EVENING ? EVENING_SUN : MORNING_SUN;
+			MoonPosition moonPosition = config.moonPosition();
+			float[] selectedMoon = moonPosition == MoonPosition.OVERHEAD ? NOON_SUN
+				: moonPosition == MoonPosition.NORTHWEST ? EVENING_SUN : MORNING_SUN;
+			copyDirection(selectedSun, environment.sunDirection);
+			copyDirection(selectedMoon, environment.moonDirection);
+			environment.nightFactor = getStaticNightFactor(environment.skyMode);
+		}
+
+		float[] activeDirection = environment.skyMode == SkyMode.NIGHT
+			|| environment.skyMode == SkyMode.COSMIC
+			? environment.moonDirection : environment.sunDirection;
+		copyDirection(activeDirection, environment.activeLightDirection);
+		environment.activeSceneDirection[0] = activeDirection[0];
+		environment.activeSceneDirection[1] = -activeDirection[1];
+		environment.activeSceneDirection[2] = activeDirection[2];
+		return environment;
 	}
 
-	private float[] getMoonDirection()
+	private void ensureFrameEnvironment()
 	{
-		MoonPosition position = config.moonPosition();
-		return position == MoonPosition.OVERHEAD ? NOON_SUN
-			: position == MoonPosition.NORTHWEST ? EVENING_SUN : MORNING_SUN;
+		if (!frameEnvironment.initialized)
+		{
+			updateFrameEnvironment(System.currentTimeMillis());
+		}
 	}
 
-	private float[] getActiveLightDirection()
+	private SkyMode getEnvironmentSkyMode()
 	{
-		SkyMode sky = getEnvironmentSkyMode();
-		return sky == SkyMode.NIGHT || sky == SkyMode.COSMIC
-			? getMoonDirection() : getSunDirection();
+		ensureFrameEnvironment();
+		return frameEnvironment.skyMode;
 	}
 
 	private void drawCustomSky(
-			int viewportWidth,
-			int viewportHeight,
+			float cameraX,
+			float cameraY,
+			float cameraZ,
 			float cameraPitch,
-			float cameraYaw)
+			float cameraYaw,
+			boolean celestialShadowsActive)
 	{
 		glUseProgram(glSkyProgram);
 
@@ -2025,7 +2307,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		int selectedSkyTexture;
 		WeatherMode weather = config.weatherMode();
-		int lightningTexture = getLightningTexture(System.currentTimeMillis());
+		int lightningTexture = getLightningTexture(frameEnvironment.timeMillis);
 
 		if (lightningTexture != 0 && (weather == WeatherMode.STORM || weather == WeatherMode.BLIZZARD))
 		{
@@ -2048,7 +2330,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			selectedSkyTexture = snowSkyTextures[3];
 		}
-		else switch (getEnvironmentSkyMode())
+		else switch (frameEnvironment.skyMode)
 		{
 			case DAY:
 				selectedSkyTexture = daySkyTexture;
@@ -2072,20 +2354,37 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, selectedSkyTexture);
 		glUniform1i(uniSkyTexture, 0);
-		float[] sun = getSunDirection();
+		float[] sun = frameEnvironment.sunDirection;
 		// RuneLite model-space height and the sky cube's vertical axis are opposed.
 		glUniform3f(uniSkySunDirection, sun[0], -sun[1], sun[2]);
-		float[] moon = getMoonDirection();
+		float[] moon = frameEnvironment.moonDirection;
 		glUniform3f(uniSkyMoonDirection, moon[0], -moon[1], moon[2]);
 		setEnvironmentRayColor(uniSkyRayColor);
 		glUniform1f(
 				uniSkyRayStrength,
 				config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f
 		);
-		SkyMode celestialSky = getEnvironmentSkyMode();
-		glUniform1f(uniSkyNightFactor,
-			celestialSky == SkyMode.NIGHT || celestialSky == SkyMode.COSMIC ? 1.0f
-				: celestialSky == SkyMode.SUNSET ? 0.18f : 0.0f);
+		glUniform1f(uniSkyNightFactor, frameEnvironment.nightFactor);
+		glUniformMatrix4fv(
+			uniSkyRayOcclusionLightProj,
+			false,
+			currentRayOcclusionLightProj);
+		glUniform3f(uniSkyCameraPosition, cameraX, cameraY, cameraZ);
+		float[] activeCelestial = frameEnvironment.activeSceneDirection;
+		glUniform3f(
+			uniSkyCelestialDirection,
+			activeCelestial[0],
+			activeCelestial[1],
+			activeCelestial[2]);
+		glUniform1i(
+			uniSkyCelestialShadowsEnabled,
+			celestialShadowsActive ? 1 : 0);
+		float celestialVisibility = weather == WeatherMode.STORM
+			|| weather == WeatherMode.BLIZZARD ? 0.08f
+			: weather == WeatherMode.RAIN ? 0.22f
+			: weather == WeatherMode.SNOW ? 0.30f
+			: 1.0f;
+		glUniform1f(uniSkyCelestialVisibility, celestialVisibility);
 
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(false);
@@ -2115,6 +2414,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private void preSceneDrawToplevel(Scene scene,
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw)
 	{
+		long frameNow = System.currentTimeMillis();
+		FrameEnvironment environment = updateFrameEnvironment(frameNow);
 		scene.setDrawDistance(getDrawDistance());
 
 		// UBO
@@ -2433,71 +2734,40 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		);
 
 		// =====================================================
-		// Lightweight directional lighting
+		// Selective celestial effects. Stock RuneLite surface color remains the
+		// base; only cast shadows, reflections, rays, and weather are layered on it.
 		// =====================================================
-		long weatherNow = System.currentTimeMillis();
+		long weatherNow = frameNow;
 		WeatherMode activeWeather = config.weatherMode();
 		float lightningFlash = activeWeather == WeatherMode.STORM || activeWeather == WeatherMode.BLIZZARD
 			? getLightningFlash(weatherNow) : 0.0f;
 		boolean lightningShadow = lightningFlash > 0.0f;
-		boolean directionalLightingActive = config.dynamicLighting() || lightningShadow;
-		boolean shadowPassActive = config.dynamicLighting() && config.dynamicShadows() || lightningShadow;
+		boolean surfaceShadowsActive = client.getGameState() == GameState.LOGGED_IN
+			&& ((config.dynamicShadows()
+				&& (config.shadowStrength() > 0 || config.shadowDebug()))
+				|| lightningShadow);
+		boolean celestialShadowsActive = client.getGameState() == GameState.LOGGED_IN
+			&& config.godRays()
+			&& config.godRaysStrength() > 0
+			&& environment.skyMode != SkyMode.OFF;
 
-		glUniform1i(
-				uniDynamicLighting,
-				directionalLightingActive ? 1 : 0
-		);
-
-		SkyMode lightingSky = getEnvironmentSkyMode();
-		float nightDirect = lightingSky == SkyMode.NIGHT || lightingSky == SkyMode.COSMIC
-			? config.nightDirectLight() / 100.0f
-			: lightingSky == SkyMode.SUNSET ? 0.72f : 1.0f;
-		float nightAmbient = lightingSky == SkyMode.NIGHT || lightingSky == SkyMode.COSMIC
-			? config.nightAmbientLight() / 100.0f
-			: lightingSky == SkyMode.SUNSET ? 0.72f : 1.0f;
-		glUniform1f(
-				uniLightIntensity,
-				config.lightIntensity() / 100.0f * nightDirect
-		);
-
-		glUniform1f(
-				uniAmbientLight,
-				config.ambientLight() / 100.0f * nightAmbient
-		);
-
-		/*
-		 * Temporary fixed light direction.
-		 *
-		 * RuneLite world orientation:
-		 * +X = East
-		 * -X = West
-		 * +Y = Up
-		 * +Z = North
-		 * -Z = South
-		 *
-		 * This currently places the "sun" high in the sky,
-		 * somewhat toward the southeast, matching RuneScape's baked model light.
-		 */
-		float[] sun = getActiveLightDirection();
+		// One frame snapshot drives material highlights, sky bodies, and both depth
+		// passes. Highlights use virtual +Y-up; scene/sky depth uses RuneLite's
+		// vertically inverted coordinate convention.
+		float[] sun = environment.activeLightDirection;
 		glUniform3f(
 				uniLightDirection,
 				sun[0],
 				sun[1],
 				sun[2]
 		);
-
 		glUniform3f(
 				uniCameraPosition,
 				cameraX,
 				cameraY,
 				cameraZ
 		);
-		SkyMode raySky = getEnvironmentSkyMode();
-		float celestialNight = raySky == SkyMode.NIGHT || raySky == SkyMode.COSMIC ? 1.0f
-			: raySky == SkyMode.SUNSET ? 0.18f : 0.0f;
-		glUniform1f(uniCelestialRayStrength,
-			config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f);
-		glUniform1f(uniCelestialNightFactor, celestialNight);
+		glUniform1f(uniCelestialNightFactor, environment.nightFactor);
 
 		glUniform1i(
 				uniEnhancedWater,
@@ -2628,13 +2898,24 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// Draw custom sky
 		// =====================================================
 
-		if (shadowPassActive)
+		if (surfaceShadowsActive)
 		{
 			renderShadowMap(
 					scene,
 					cameraX,
 					cameraY,
-					cameraZ
+					cameraZ,
+					environment.activeSceneDirection
+			);
+		}
+		if (celestialShadowsActive)
+		{
+			renderRayOcclusionMap(
+				scene,
+					cameraX,
+					cameraY,
+					cameraZ,
+					environment.activeSceneDirection
 			);
 		}
 
@@ -2646,10 +2927,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				false,
 				currentShadowLightProj
 		);
-
 		glUniform1i(
 				uniShadowsEnabled,
-				shadowPassActive ? 1 : 0
+				surfaceShadowsActive ? 1 : 0
 		);
 
 		glUniform1f(
@@ -2669,16 +2949,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				2
 		);
 
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, rayOcclusionDepthTexture);
+
 		glActiveTexture(GL_TEXTURE0);
 
 		drawSkybox(
-				scene,
 				sky,
 				cameraX,
 				cameraY,
 				cameraZ,
 				cameraPitch,
-				cameraYaw
+				cameraYaw,
+				celestialShadowsActive
 		);
 
 		// Reuse the selected sky cubemap as the wet-surface environment. Keep it
@@ -2694,13 +2977,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	}
 
 	private void drawSkybox(
-			Scene scene,
 			int sky,
 			float cameraX,
 			float cameraY,
 			float cameraZ,
 			float cameraPitch,
-			float cameraYaw)
+			float cameraYaw,
+			boolean celestialShadowsActive)
 	{
 		// Normal RuneLite sky color
 		float skyR = ((sky >> 16) & 0xFF) / 255f;
@@ -2715,11 +2998,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		if (getEnvironmentSkyMode() != SkyMode.OFF)
 		{
 			drawCustomSky(
-					client.getViewportWidth(),
-					client.getViewportHeight(),
-					cameraPitch,
-					cameraYaw
-			);
+				cameraX,
+				cameraY,
+				cameraZ,
+				cameraPitch,
+				cameraYaw,
+				celestialShadowsActive);
+		}
+		else
+		{
+			// Keep reflections deterministic when custom sky rendering is disabled.
+			activeSkyTexture = daySkyTexture;
 		}
 	}
 
@@ -2741,8 +3030,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private void drawWeather()
 	{
 		WeatherMode mode = config.weatherMode();
-		long now = System.currentTimeMillis();
-		updateWeatherAudio(mode, now);
+		long visualNow = frameEnvironment.timeMillis;
+		updateWeatherAudio(mode, System.currentTimeMillis());
 		if (mode == WeatherMode.CLEAR || glWeatherProgram == 0)
 		{
 			return;
@@ -2755,7 +3044,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUseProgram(glWeatherProgram);
 		glUniformMatrix4fv(uniWeatherProjection, false, weatherProjection);
 		glUniform3f(uniWeatherCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
-		glUniform1f(uniWeatherTime, (now % 600_000L) / 1000.0f);
+		glUniform1f(uniWeatherTime, (visualNow % 600_000L) / 1000.0f);
 		glUniform1f(uniWeatherRadius, storm ? 1550.0f : severe ? 1750.0f : 1950.0f);
 		glUniform1f(uniWeatherFallSpeed, snow ? (severe ? 210.0f : 135.0f) : (storm ? 2400.0f : 1250.0f));
 		glUniform1f(uniWeatherWind, config.weatherWind() * (severe ? 4.0f : 2.2f));
@@ -2763,7 +3052,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform1i(uniWeatherSnow, snow ? 1 : 0);
 		glUniform1i(uniWeatherStorm, storm ? 1 : 0);
 		glUniform1i(uniWeatherMist, 0);
-		float flash = severe ? getLightningFlash(now) : 0.0f;
+		float flash = severe ? getLightningFlash(visualNow) : 0.0f;
 		glUniform1f(uniWeatherLightningFlash, flash);
 		glUniform1f(uniWeatherIntensity, (storm ? 0.82f : severe ? 0.72f : 0.48f) + flash * 0.28f);
 		glUniformMatrix4fv(uniWeatherShadowLightProj, false, currentShadowLightProj);
@@ -2860,6 +3149,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void postDrawToplevel()
 	{
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, 0);
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 		glActiveTexture(GL_TEXTURE0);
@@ -3295,7 +3586,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// Texture on UI
 		drawUi(overlayColor, canvasHeight, canvasWidth);
 
-		if (config.shadowDebug() && config.dynamicLighting() && config.dynamicShadows())
+		if (config.shadowDebug() && config.dynamicShadows())
 		{
 			drawShadowDebug();
 		}
