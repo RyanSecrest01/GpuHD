@@ -2414,6 +2414,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					textureArrayId,
 					anisotropicFilteringLevel
 			);
+			textureManager.setSamplerAnisotropicFilteringLevel(
+					stoneTextureSampler,
+					anisotropicFilteringLevel
+			);
 
 			lastAnisotropicFilteringLevel =
 					anisotropicFilteringLevel;

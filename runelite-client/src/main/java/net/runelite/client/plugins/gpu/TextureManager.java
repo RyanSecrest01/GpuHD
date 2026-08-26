@@ -115,6 +115,18 @@ class TextureManager
 		}
 	}
 
+	void setSamplerAnisotropicFilteringLevel(int sampler, int level)
+	{
+		if (GL.getCapabilities().GL_EXT_texture_filter_anisotropic)
+		{
+			final float maxSamples = glGetFloat(EXTTextureFilterAnisotropic.GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+			final float anisoLevel = Math.max(1, Math.min(maxSamples, level));
+			glSamplerParameterf(sampler,
+				EXTTextureFilterAnisotropic.GL_TEXTURE_MAX_ANISOTROPY_EXT,
+				anisoLevel);
+		}
+	}
+
 	void freeTextureArray(int textureArrayId)
 	{
 		glDeleteTextures(textureArrayId);

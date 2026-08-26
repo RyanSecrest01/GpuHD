@@ -149,23 +149,23 @@ vec3 applyMaterialPalette(vec3 sourceColor, int materialId, int preset)
 
 	if (preset == 1) // Natural
 	{
-		if (materialId == 1) { gain = vec3(0.84, 1.055, 1.045); chromaGain = 1.07; amount = 0.68; }
-		else if (materialId == 2) { gain = vec3(0.985, 1.0, 1.025); chromaGain = 0.92; amount = 0.24; }
-		else if (materialId == 3) { gain = vec3(1.05, 1.015, 0.92); chromaGain = 1.04; amount = 0.42; }
-		else if (materialId == 4) { gain = vec3(1.06, 0.99, 0.92); chromaGain = 1.05; amount = 0.44; }
-		else if (materialId == 5) { gain = vec3(1.055, 0.99, 0.92); chromaGain = 1.05; amount = 0.42; }
-		else if (materialId == 6) { gain = vec3(0.98, 1.0, 1.035); chromaGain = 0.90; amount = 0.22; }
-		else if (materialId == 7) { gain = vec3(0.82, 1.07, 1.035); chromaGain = 1.09; amount = 0.68; }
+		if (materialId == 1) { gain = vec3(0.80, 1.08, 1.00); chromaGain = 1.10; amount = 0.76; }
+		else if (materialId == 2) { gain = vec3(0.91, 1.00, 1.10); chromaGain = 0.84; amount = 0.60; }
+		else if (materialId == 3) { gain = vec3(1.10, 1.025, 0.83); chromaGain = 1.07; amount = 0.62; }
+		else if (materialId == 4) { gain = vec3(1.12, 0.97, 0.82); chromaGain = 1.08; amount = 0.64; }
+		else if (materialId == 5) { gain = vec3(1.14, 0.97, 0.78); chromaGain = 1.09; amount = 0.66; }
+		else if (materialId == 6) { gain = vec3(0.88, 1.00, 1.15); chromaGain = 0.82; amount = 0.60; }
+		else if (materialId == 7) { gain = vec3(0.74, 1.10, 0.95); chromaGain = 1.14; amount = 0.78; }
 	}
 	else if (preset == 2) // Lush
 	{
-		if (materialId == 1) { gain = vec3(0.72, 1.11, 1.09); chromaGain = 1.14; amount = 0.82; }
-		else if (materialId == 2) { gain = vec3(0.96, 1.0, 1.055); chromaGain = 0.94; amount = 0.34; }
-		else if (materialId == 3) { gain = vec3(1.10, 1.02, 0.84); chromaGain = 1.09; amount = 0.58; }
-		else if (materialId == 4) { gain = vec3(1.11, 0.97, 0.82); chromaGain = 1.09; amount = 0.58; }
-		else if (materialId == 5) { gain = vec3(1.10, 0.975, 0.85); chromaGain = 1.10; amount = 0.56; }
-		else if (materialId == 6) { gain = vec3(0.94, 1.0, 1.075); chromaGain = 0.94; amount = 0.30; }
-		else if (materialId == 7) { gain = vec3(0.68, 1.14, 1.07); chromaGain = 1.16; amount = 0.84; }
+		if (materialId == 1) { gain = vec3(0.68, 1.13, 0.95); chromaGain = 1.18; amount = 0.90; }
+		else if (materialId == 2) { gain = vec3(0.82, 1.00, 1.18); chromaGain = 0.82; amount = 0.78; }
+		else if (materialId == 3) { gain = vec3(1.16, 1.035, 0.72); chromaGain = 1.12; amount = 0.78; }
+		else if (materialId == 4) { gain = vec3(1.18, 0.94, 0.70); chromaGain = 1.12; amount = 0.78; }
+		else if (materialId == 5) { gain = vec3(1.20, 0.95, 0.66); chromaGain = 1.14; amount = 0.80; }
+		else if (materialId == 6) { gain = vec3(0.82, 1.00, 1.22); chromaGain = 0.82; amount = 0.75; }
+		else if (materialId == 7) { gain = vec3(0.60, 1.16, 0.88); chromaGain = 1.22; amount = 0.92; }
 	}
 
 	float sourceLuminance = clamp(dot(sourceColor, luminanceWeights), 0.0, 1.0);
@@ -184,6 +184,16 @@ vec3 applyMaterialPalette(vec3 sourceColor, int materialId, int preset)
 	float vividGate = 1.0 - 0.50 * smoothstep(0.62, 0.95, relativeChroma);
 	return mix(sourceColor, targetColor,
 		clamp(amount * tonalGate * vividGate, 0.0, 1.0));
+}
+
+float stoneTapWeight(vec4 center, vec4 tap)
+{
+	const vec3 luminanceWeights = vec3(0.2126, 0.7152, 0.0722);
+	vec3 difference = abs(tap.rgb - center.rgb);
+	float edgeDelta = max(
+		abs(dot(tap.rgb - center.rgb, luminanceWeights)),
+		0.55 * max(difference.r, max(difference.g, difference.b)));
+	return 1.0 - smoothstep(0.035, 0.12, edgeDelta);
 }
 
 void main()
@@ -232,32 +242,82 @@ void main()
 				textures,
 				vec3(sampleUv, float(textureIdx))
 			);
-		if (stoneWallAmount > 0.0)
-		{
-			vec4 smoothStoneColor = textureGrad(
-				smoothTextures,
-				vec3(sampleUv, float(textureIdx)),
-				textureGradientX,
-				textureGradientY);
-			textureColor.rgb = mix(
-				textureColor.rgb,
-				smoothStoneColor.rgb,
-				stoneWallAmount);
-		}
-
-        vec4 textureColor0 =
-            textureLod(
+		vec4 textureColor0 =
+			textureLod(
                 textures,
                 vec3(sampleUv, float(textureIdx)),
                 0.f
             );
 
         if (textureColor0.a < 1.f)
-        {
-            discard;
-        }
+		{
+			discard;
+		}
 
-        textureColor =
+		if (stoneWallAmount > 0.0)
+		{
+			vec3 textureLayer = vec3(sampleUv, float(textureIdx));
+			vec4 smoothCenter = textureGrad(
+				smoothTextures,
+				textureLayer,
+				textureGradientX,
+				textureGradientY);
+			vec3 cleanStoneColor = smoothCenter.rgb;
+			bool safeAlpha = smoothCenter.a >= 0.995;
+
+			vec2 textureDimensions = vec2(textureSize(smoothTextures, 0).xy);
+			vec2 texel = 1.0 / textureDimensions;
+			float footprint = max(
+				length(textureGradientX * textureDimensions),
+				length(textureGradientY * textureDimensions));
+			float crossBlend = 1.0 - smoothstep(1.0, 3.25, footprint);
+
+			if (crossBlend > 0.01)
+			{
+				vec4 tapLeft = textureGrad(smoothTextures,
+					vec3(sampleUv - vec2(texel.x, 0.0), float(textureIdx)),
+					textureGradientX, textureGradientY);
+				vec4 tapRight = textureGrad(smoothTextures,
+					vec3(sampleUv + vec2(texel.x, 0.0), float(textureIdx)),
+					textureGradientX, textureGradientY);
+				vec4 tapDown = textureGrad(smoothTextures,
+					vec3(sampleUv - vec2(0.0, texel.y), float(textureIdx)),
+					textureGradientX, textureGradientY);
+				vec4 tapUp = textureGrad(smoothTextures,
+					vec3(sampleUv + vec2(0.0, texel.y), float(textureIdx)),
+					textureGradientX, textureGradientY);
+
+				safeAlpha = safeAlpha
+					&& tapLeft.a >= 0.995 && tapRight.a >= 0.995
+					&& tapDown.a >= 0.995 && tapUp.a >= 0.995;
+				float weightLeft = stoneTapWeight(smoothCenter, tapLeft);
+				float weightRight = stoneTapWeight(smoothCenter, tapRight);
+				float weightDown = stoneTapWeight(smoothCenter, tapDown);
+				float weightUp = stoneTapWeight(smoothCenter, tapUp);
+				float totalWeight = 2.0 + weightLeft + weightRight
+					+ weightDown + weightUp;
+				vec3 bilateralStone = (
+					smoothCenter.rgb * 2.0
+					+ tapLeft.rgb * weightLeft + tapRight.rgb * weightRight
+					+ tapDown.rgb * weightDown + tapUp.rgb * weightUp)
+					/ totalWeight;
+				cleanStoneColor = mix(
+					smoothCenter.rgb,
+					bilateralStone,
+					crossBlend);
+			}
+
+			if (!safeAlpha)
+			{
+				cleanStoneColor = textureColor.rgb;
+			}
+			textureColor.rgb = mix(
+				textureColor.rgb,
+				cleanStoneColor,
+				stoneWallAmount);
+		}
+
+		textureColor =
             vec4(
                 textureColor.rgb,
                 1.f
