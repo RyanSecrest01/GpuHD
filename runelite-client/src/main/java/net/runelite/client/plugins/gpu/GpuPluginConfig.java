@@ -414,6 +414,21 @@ public interface GpuPluginConfig extends Config
 		return 40;
 	}
 
+	@Range(
+		min = 0,
+		max = 100
+	)
+	@ConfigItem(
+		keyName = "stoneWallCleanup",
+		name = "Stone wall cleanup",
+		description = "Smooths grain and suppresses glossy triangle lighting on tagged vertical stone walls.",
+		position = 23
+	)
+	default int stoneWallCleanup()
+	{
+		return 65;
+	}
+
 	@ConfigItem(
 		keyName = "materialDebug",
 		name = "Show material tags",

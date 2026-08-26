@@ -15,6 +15,7 @@
 // ========================================================
 
 uniform sampler2DArray textures;
+uniform sampler2DArray smoothTextures;
 uniform float brightness;
 uniform float smoothBanding;
 uniform vec4 fogColor;
@@ -29,6 +30,7 @@ uniform float saturation;
 uniform float contrast;
 uniform int materialPalette;
 uniform int materialDebug;
+uniform float stoneWallCleanup;
 
 // ========================================================
 // Selective celestial effects
@@ -190,6 +192,19 @@ void main()
     bool waterSurface = false;
     bool swampWater = false;
 	bool paletteEligible = (fShoreEdges & 0x300) != 0;
+	float stoneWallAmount = 0.0;
+	if (stoneWallCleanup > 0.0 && fMaterialId == 2
+		&& fTextureId > 0 && (fShoreEdges & 0x200) != 0)
+	{
+		vec3 stoneNormal = stableSurfaceNormal();
+		float verticalStone = 1.0 - smoothstep(
+			0.20, 0.46, abs(stoneNormal.y));
+		stoneWallAmount = clamp(stoneWallCleanup, 0.0, 1.0)
+			* verticalStone;
+	}
+	// Texture smoothing stays gradual, while rough masonry reaches its matte
+	// response sooner so the default cannot read as partly polished stone.
+	float stoneMatteAmount = clamp(stoneWallAmount * 1.45, 0.0, 1.0);
 
     // ====================================================
     // Normal RuneLite texture rendering
@@ -209,12 +224,26 @@ void main()
             float waveB = cos(fWorldPos.z * 0.014 - time * 0.73);
             sampleUv += vec2(waveA, waveB) * 0.006 * clamp(waterStrength, 0.0, 2.0);
         }
+		vec2 textureGradientX = dFdx(sampleUv);
+		vec2 textureGradientY = dFdy(sampleUv);
 
 		vec4 textureColor =
 			texture(
 				textures,
 				vec3(sampleUv, float(textureIdx))
 			);
+		if (stoneWallAmount > 0.0)
+		{
+			vec4 smoothStoneColor = textureGrad(
+				smoothTextures,
+				vec3(sampleUv, float(textureIdx)),
+				textureGradientX,
+				textureGradientY);
+			textureColor.rgb = mix(
+				textureColor.rgb,
+				smoothStoneColor.rgb,
+				stoneWallAmount);
+		}
 
         vec4 textureColor0 =
             textureLod(
@@ -541,6 +570,9 @@ void main()
 		float environmentAmount = environmentMaterial
 			* (0.016 + horizontalSurface * 0.065
 				+ surfaceFresnel * 0.14);
+		// Masonry is a rough diffuse material. Neutral gray must not be inferred
+		// as polished merely because it has little chroma.
+		environmentAmount *= mix(1.0, 0.16, stoneMatteAmount);
 		vec3 environmentHeadroom = clamp(
 			vec3(1.0) - c.rgb * 0.70, 0.12, 1.0);
 		c.rgb += reflectedEnvironment
@@ -567,6 +599,7 @@ void main()
 		// adds a bounded lift to light-facing geometry. It never darkens stock color,
 		// draws outlines, or changes the texture/vertex-color interpolation.
 		float definitionAmount = clamp(polygonDefinition, 0.0, 1.0);
+		definitionAmount *= 1.0 - stoneMatteAmount;
 		if (definitionAmount > 0.0)
 		{
 			float faceNdotL = max(dot(materialNormal, materialLightDir), 0.0);
@@ -598,6 +631,7 @@ void main()
 			(broadSpecular * 0.080 + sharpSpecular * 0.34)
 			* hardSurface * materialGloss
 			* directVisibility * celestialSpecularStrength;
+		directReflection *= mix(1.0, 0.12, stoneMatteAmount);
 		vec3 reflectionHeadroom = clamp(
 			vec3(1.0) - c.rgb * 0.45, 0.35, 1.0);
 		c.rgb += directReflectionColor

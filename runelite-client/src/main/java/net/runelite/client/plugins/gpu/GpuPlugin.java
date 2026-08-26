@@ -201,6 +201,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniPolygonDefinition;
 	private int uniMaterialPalette;
 	private int uniMaterialDebug;
+	private int uniStoneWallCleanup;
 
 	private int uniShadowLightProj;
 	private int uniShadowBase;
@@ -265,6 +266,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int shadowDepthTexture;
 
 	private int textureArrayId;
+	private int stoneTextureSampler;
 
 	private final GLBuffer glUniformBuffer = new GLBuffer("uniform buffer");
 
@@ -473,6 +475,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initVao();
 				initSkyVao();
 				initProgram();
+				initStoneTextureSampler();
 				initInterfaceTexture();
 				initSkyTextures();
 				initShadowMap();
@@ -591,6 +594,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				shutdownSkyTextures();
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
+				shutdownStoneTextureSampler();
 				shutdownProgram();
 				shutdownVao();
 				shutdownBuffers();
@@ -753,7 +757,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				PROGRAM.compile(template, Map.of(
 					"textures", 1,
 					"shadowMap", 2,
-					"environmentMap", 3));
+					"environmentMap", 3,
+					"smoothTextures", 4));
 
 		glUiProgram =
 				UI_PROGRAM.compile(template);
@@ -1121,6 +1126,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniPolygonDefinition = glGetUniformLocation(glProgram, "polygonDefinition");
 		uniMaterialPalette = glGetUniformLocation(glProgram, "materialPalette");
 		uniMaterialDebug = glGetUniformLocation(glProgram, "materialDebug");
+		uniStoneWallCleanup = glGetUniformLocation(glProgram, "stoneWallCleanup");
 		uniLightDirection = glGetUniformLocation(glProgram, "lightDirection");
 		uniCameraPosition = glGetUniformLocation(glProgram, "cameraPosition");
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
@@ -1449,6 +1455,34 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glBuffer.glBufferId = -1;
 		}
 		glBuffer.size = -1;
+	}
+
+	private void initStoneTextureSampler()
+	{
+		stoneTextureSampler = glGenSamplers();
+		glSamplerParameteri(stoneTextureSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glSamplerParameteri(stoneTextureSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glSamplerParameteri(stoneTextureSampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glSamplerParameteri(stoneTextureSampler, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glBindSampler(4, stoneTextureSampler);
+	}
+
+	private void bindStoneTextureArray()
+	{
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayId);
+		glBindSampler(4, stoneTextureSampler);
+		glActiveTexture(GL_TEXTURE0);
+	}
+
+	private void shutdownStoneTextureSampler()
+	{
+		if (stoneTextureSampler != 0)
+		{
+			glBindSampler(4, 0);
+			glDeleteSamplers(stoneTextureSampler);
+			stoneTextureSampler = 0;
+		}
 	}
 
 	private void initInterfaceTexture()
@@ -2611,6 +2645,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					: 0
 		);
 
+		glUniform1f(
+				uniStoneWallCleanup,
+				client.getGameState() == GameState.LOGGED_IN
+					? Math.max(0f, Math.min(1f, config.stoneWallCleanup() / 100f))
+					: 0f
+		);
+
 		// =====================================================
 		// Enhanced colors
 		// =====================================================
@@ -3424,6 +3465,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			textureArrayId = textureManager.initTextureArray(textureProvider);
 			if (textureArrayId > -1)
 			{
+				bindStoneTextureArray();
 				// if texture upload is successful, compute and set texture animations
 				float[] texAnims = textureManager.computeTextureAnimations(textureProvider);
 				glUseProgram(glProgram);
