@@ -1,4 +1,4 @@
-# Renderer, Shadows, Materials, Color, and Textures
+# Core Renderer, Environment, Lighting, and Shadows
 
 Last updated: 2026-08-26. This describes the active `feature/stone-cleanup` worktree, not every experiment on other branches.
 
@@ -36,13 +36,11 @@ Read these files, not the entire repository:
 | User settings and defaults | `GpuPluginConfig.java` |
 | Main world shading | `frag.glsl`, `vert.glsl` |
 | Stock texture array/filtering | `TextureManager.java` |
-| Static/dynamic geometry upload | `SceneUploader.java`, `ModelUploader.java` |
-| Material packing/classification | `SurfaceMaterial.java`, `SurfaceMaterialClassifier.java` |
+| Material-owned surface behavior | `docs/MATERIALS.md` |
 | Zone draw ranges and roof-dominant casters | `Zone.java` |
 | Sky rendering | `sky_vert.glsl`, `sky_frag.glsl`, `SkyMode.java` |
 | Shadow depth pass | `shadow_vert.glsl`, `shadow_frag.glsl`, `shadow_debug_*` |
 | Matrix correctness tests | `GpuPluginLightMatrixTest.java` |
-| Material tests | `SurfaceMaterialClassifierTest.java` |
 
 Use `rg` for the method/uniform names in this document instead of browsing whole files.
 
@@ -132,75 +130,17 @@ Known tradeoff: a retained hidden roof can shade an interior receiver. Avoid try
 
 Acceptance invariant: with Cast Shadows disabled, or where raw shadow occlusion is zero, the shadow subsystem must not change stock surface color.
 
-## Material tagging
+## Material and Color Boundary
 
-Material identity is computed once during upload and packed without changing the vertex stride.
+Material tags, palettes, Polygon Definition, texture overrides, normal mapping, stone cleanup, and ground materials are owned by `docs/MATERIALS.md`.
 
-### Packing contract
+Renderer-level invariants that still apply:
 
-- `tex.x` low 9 bits: stock texture code (`0` untextured, `1..256` cache texture + 1).
-- `tex.x` next 4 bits: `SurfaceMaterial` ID.
-- `tex.w` bit `0x100`: terrain eligibility.
-- `tex.w` bit `0x200`: world-scenery eligibility.
-- `vert.glsl` masks the stock texture code before texture animation/array indexing and passes material ID as `flat`.
-
-Materials: Unknown, Grass, Stone, Sand, Dirt, Wood, Metal, Foliage, Water.
-
-`SceneUploader` classifies terrain from exact texture IDs or conservative HSL consensus. Ordinary models use exact texture IDs only. `ModelUploader` marks known world objects/scenery; actor/login buffers retain historical zero flags, preventing accidental palette recoloring.
-
-Do not widen the VAO or HSL-classify arbitrary actors to solve a missing world tag. Add a conservative texture/object classification instead.
-
-## Color and polygon definition
-
-### Material palettes
-
-`MaterialPalette` provides Classic, Natural, and Lush presets.
-
-- Classic is a true bypass.
-- Palette transforms preserve Rec.709 luminance and alter material chroma/hue only.
-- Water is excluded from palette grading when its dedicated enhanced path owns the result.
-- Material Debug is the first tool for diagnosing “this setting does nothing.”
-
-Natural is the intended balanced default. Lush is deliberately stylized and can make stone cool/slate and terrain strongly saturated.
-
-### Enhanced Colors
-
-Enhanced Colors remains a later, independent world-only grade. Neutral values are saturation `100` and contrast `100`. Fog is applied after grading so atmospheric color is not regraded.
-
-### Polygon Definition
-
-This is inspired by the faceted read of 117 HD flat shading, but this renderer has no uploaded smooth vertex-normal stream. It uses a derivative face normal to add a small, headroom-limited lift to light-facing opaque geometry.
-
-- It never darkens stock color.
-- It does not draw polygon outlines.
-- Shadow blockers suppress the lift.
-- Tagged vertical stone cleanup suppresses it.
-
-At high values it exposes terrain triangulation. Default `35` is a compromise; a future refinement should reduce/cap the effect on `TERRAIN_FLAG` while retaining it on props/models.
-
-## Texture quality and stone cleanup
-
-The stock texture array is 256 layers of 128×128 RGBA8 data with generated mipmaps. Anisotropic filtering improves oblique minification but cannot create missing detail or remove baked grain. Global negative LOD bias/“Texture Clarity” was visually ineffective and risked shimmer, so it is not the active strategy.
-
-Current targeted stone path:
-
-- Only textured `STONE` + `WORLD_SCENERY_FLAG` + near-vertical faces qualify.
-- Unit 4 resamples the stock layer with linear/trilinear filtering.
-- A 5-tap edge-aware cross filter reduces low-contrast intra-brick noise while preserving mortar edges.
-- Extra taps fade out under minification, where mipmaps already low-pass.
-- Stone also suppresses environment reflection, direct specular, and polygon definition so neutral gray is not mistaken for polished metal.
-- Slider `0` is exact stock behavior.
-
-Verified Edgeville mapping:
-
-- Game object `BRICKWALL`/ID 1902 uses models 634/635/574/575/576.
-- Most visible faces use cache texture ID `2`, classified as Stone and fully vertical.
-- `DRYSTONEWALL`/ID 979 uses cache texture ID `11`.
-- Some masonry is untextured and will not be fixed by a texture-ID override.
-
-Candidate third-party textures currently exist under `resources/.../gpu/textures/`, but no replacement texture is wired into the renderer yet. The intended next step is a sparse standalone texture on unit 5, gated to cache texture ID 2 plus the existing vertical Stone/world-scenery mask. Keep the stock layer untouched and retain missing-resource fallback.
-
-Do not enlarge the entire stock array to 256/512. A single 256² RGBA8 replacement with mipmaps is about 341 KiB; a full 256-layer 256² array is roughly 85 MiB.
+- material effects are layered around a stock-color fallback;
+- material normals must never recreate blanket world diffuse lighting;
+- Enhanced Colors remains an independent world-only grade and is neutral at saturation/contrast `100`;
+- fog is applied after material/color response;
+- material passes must preserve login/UI isolation and GL state.
 
 ## HDR status
 
@@ -217,17 +157,15 @@ This can remain cross-platform SDR output and still improve sun, lightning, spec
 
 ## Near-term priorities
 
-1. Finish and validate one sparse clean replacement for Edgeville cache texture ID 2.
-2. Reduce Polygon Definition specifically on terrain without weakening props/models.
-3. Extend material classification only from evidence gathered with Material Debug.
-4. Keep shadow behavior stable; do not mix texture work with matrix/bias changes.
+1. Keep shadow behavior stable; do not mix material work with matrix/bias changes.
+2. Maintain one resolved environment state for sky, fog, reflections, weather, and shadows.
+3. Keep custom passes deterministic and state-safe on Apple OpenGL 4.1.
+4. Continue material work through `MATERIALS.md`.
 5. Port deferred water incrementally only after the core renderer branch is stable; see `WATER.md`.
 
 ## Focused validation
 
 - Shadow direction: fixed camera, compare Morning/Noon/Evening.
 - Roof transition: enter/leave a building without moving camera; exterior shadow silhouette should not pop.
-- Material tags: use Material Debug before changing classifier ranges.
-- Stone: fixed Edgeville camera, compare cleanup `0` and `100` under Classic palette and neutral Enhanced Colors.
-- Polygon definition: compare terrain and props separately; do not judge at `100` only.
+- Material/color changes: follow the controlled comparisons in `MATERIALS.md`.
 - Login/UI: custom world uniforms must not recolor either.
