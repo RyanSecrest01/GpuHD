@@ -24,6 +24,7 @@
  */
 package net.runelite.client.plugins.gpu;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -47,18 +48,112 @@ import net.runelite.client.callback.RenderCallbackManager;
 @Slf4j
 class SceneUploader
 {
+	private static final int SURFACE_DETAIL_ANCHOR_STRIDE = 6;
+	private static final int MAX_SURFACE_DETAIL_ANCHORS_PER_TILE = 12;
+	private static final int MAX_SURFACE_DETAIL_SLOPE = 72;
+	private static final int SURFACE_DETAIL_NONE = -1;
+	private static final int SURFACE_DETAIL_GRASS = 0;
+	private static final int SURFACE_DETAIL_PEBBLE = 1;
+	private static final int INVISIBLE_HSL = 12345678;
+
+	private static final class SurfaceDetailMaterial
+	{
+		private final int type;
+		private final int packedHsl;
+
+		private SurfaceDetailMaterial(int type, int packedHsl)
+		{
+			this.type = type;
+			this.packedHsl = packedHsl;
+		}
+	}
+
+	// tex.w already carries the eight shoreline bits for terrain. The next bit
+	// distinguishes scene terrain from models without widening the stock vertex
+	// format, allowing weather accumulation to avoid coating every object.
+	private static final int TERRAIN_FLAG = 1 << 8;
+	private static final int TERRAIN_BLEND_WEST = 1 << 9;
+	private static final int TERRAIN_BLEND_EAST = 1 << 10;
+	private static final int TERRAIN_BLEND_SOUTH = 1 << 11;
+	private static final int TERRAIN_BLEND_NORTH = 1 << 12;
+	// Edge opposite each vertex of a shaped water triangle. The water shader uses
+	// these with procedural barycentrics to identify diagonal/internal banks.
+	private static final int WATER_FACE_EDGE_0 = 1 << 13;
+	private static final int WATER_FACE_EDGE_1 = 1 << 14;
+	private static final int WATER_FACE_EDGE_2 = 1 << 15;
+	// Generated underwater terrain is rendered into the opaque scene snapshot.
+	// Reserve half of the packed alpha byte as a stable substrate marker for the
+	// later water pass. Bits 16-23 deliberately remain clear so this introduces
+	// no vertex depth bias, while the low 16 bits retain the original HSL.
+	private static final int WATER_BED_ALPHA_MARKER = 128;
+	private static final int WATER_BED_RINGS = 3;
+	// Keep a narrow readable shelf at the bank, then descend rapidly enough that
+	// the generated substrate is already optically deep before its outer edge.
+	// This avoids exposing a second artificial coastline at the end of the mesh.
+	private static final int[] WATER_BED_DEPTHS = {20, 72, 260, 520};
+	private static final int WATER_BED_SAND_HUE = 8;
+	private static final int WATER_BED_SAND_SATURATION = 3;
+	private static final int WATER_BED_SAND_LUMINANCE = 82;
+	private static final int WATER_BED_SEARCH_DIAMETER = WATER_BED_RINGS * 2 + 1;
+	private static final int WATER_BED_SEARCH_CAPACITY =
+		WATER_BED_SEARCH_DIAMETER * WATER_BED_SEARCH_DIAMETER;
+
+	private static final class TerrainMaterial
+	{
+		private final int texture;
+		private final int swColor;
+		private final int seColor;
+		private final int neColor;
+		private final int nwColor;
+		private final int representativeColor;
+		private final float distanceSquared;
+		private final int sceneX;
+		private final int sceneY;
+		private final int face;
+
+		private TerrainMaterial(
+			int texture,
+			int swColor,
+			int seColor,
+			int neColor,
+			int nwColor,
+			float distanceSquared,
+			int sceneX,
+			int sceneY,
+			int face)
+		{
+			this.texture = texture;
+			this.representativeColor = averageTerrainColor(texture,
+				swColor, seColor, neColor, nwColor);
+			this.swColor = visibleTerrainColor(swColor, representativeColor);
+			this.seColor = visibleTerrainColor(seColor, representativeColor);
+			this.neColor = visibleTerrainColor(neColor, representativeColor);
+			this.nwColor = visibleTerrainColor(nwColor, representativeColor);
+			this.distanceSquared = distanceSquared;
+			this.sceneX = sceneX;
+			this.sceneY = sceneY;
+			this.face = face;
+		}
+	}
+
 	private final int[] modelLocalXI;
 	private final int[] modelLocalYI;
 	private final int[] modelLocalZI;
 
 	private final float[] u, v;
+	private final int[] waterBedQueueX = new int[WATER_BED_SEARCH_CAPACITY];
+	private final int[] waterBedQueueY = new int[WATER_BED_SEARCH_CAPACITY];
+	private final int[] waterBedVisited = new int[WATER_BED_SEARCH_CAPACITY];
+	private int waterBedVisitStamp;
 
 	private final RenderCallbackManager renderCallbackManager;
+	private final GpuPluginConfig config;
 	private int basex, basez, rid, level;
 
-	SceneUploader(RenderCallbackManager renderCallbackManager)
+	SceneUploader(RenderCallbackManager renderCallbackManager, GpuPluginConfig config)
 	{
 		this.renderCallbackManager = renderCallbackManager;
+		this.config = config;
 		modelLocalXI = new int[ModelUploader.MAX_VERTEX_COUNT];
 		modelLocalYI = new int[ModelUploader.MAX_VERTEX_COUNT];
 		modelLocalZI = new int[ModelUploader.MAX_VERTEX_COUNT];
@@ -79,7 +174,7 @@ class SceneUploader
 					Tile t = tiles[z][(mzx << 3) + xoff][(mzz << 3) + zoff];
 					if (t != null)
 					{
-						zoneSize(zone, t);
+						zoneSize(scene, zone, t, z);
 					}
 				}
 			}
@@ -88,6 +183,7 @@ class SceneUploader
 
 	void uploadZone(Scene scene, Zone zone, int mzx, int mzz)
 	{
+		zone.clearWaterRanges();
 		int[][][] roofs = scene.getRoofs();
 		Set<Integer> roofIds = new HashSet<>();
 
@@ -136,6 +232,461 @@ class SceneUploader
 				zone.levelOffsets[level] = pos;
 			}
 		}
+
+		buildSurfaceDetailAnchors(scene, zone, mzx, mzz);
+	}
+
+	/**
+	 * Builds deterministic anchors for the lightweight surface-detail pass. Only
+	 * true ground terrain is considered: object meshes, roofs, bridges, and upper
+	 * floors never enter this path. Paint tiles use the stock terrain split while
+	 * shaped tiles are sampled against their actual triangles, so every accepted
+	 * anchor has the exact height of the surface beneath it.
+	 */
+	private void buildSurfaceDetailAnchors(Scene scene, Zone zone, int mzx, int mzz)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		int[][][] tileHeights = scene.getTileHeights();
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
+		float[] anchors = new float[8 * 8 * MAX_SURFACE_DETAIL_ANCHORS_PER_TILE
+			* SURFACE_DETAIL_ANCHOR_STRIDE];
+		int writeOffset = 0;
+
+		for (int level = 0; level < 4; ++level)
+		{
+			// Storage plane zero plus render level zero is deliberately strict. Green
+			// roof/floor HSL values are not a reliable vegetation material signal.
+			if (level != 0)
+			{
+				zone.surfaceDetailLevelOffsets[level] = writeOffset;
+				continue;
+			}
+
+			for (int xoff = 0; xoff < 8; ++xoff)
+			{
+				for (int zoff = 0; zoff < 8; ++zoff)
+				{
+					int sceneX = (mzx << 3) + xoff;
+					int sceneZ = (mzz << 3) + zoff;
+					Tile tile = tiles[level][sceneX][sceneZ];
+					if (tile == null)
+					{
+						continue;
+					}
+
+					int heightLevel = tile.getRenderLevel();
+					if (heightLevel != 0 || heightLevel >= tileHeights.length
+						|| sceneX + 1 >= tileHeights[heightLevel].length
+						|| sceneZ + 1 >= tileHeights[heightLevel][sceneX].length)
+					{
+						continue;
+					}
+
+					int swHeight = tileHeights[heightLevel][sceneX][sceneZ];
+					int seHeight = tileHeights[heightLevel][sceneX + 1][sceneZ];
+					int neHeight = tileHeights[heightLevel][sceneX + 1][sceneZ + 1];
+					int nwHeight = tileHeights[heightLevel][sceneX][sceneZ + 1];
+					int worldTileX = scene.getBaseX() + sceneX - sceneOffset;
+					int worldTileZ = scene.getBaseY() + sceneZ - sceneOffset;
+					SceneTilePaint paint = tile.getSceneTilePaint();
+					if (paint != null)
+					{
+						SurfaceDetailMaterial material = surfaceMaterial(paint);
+						int minHeight = Math.min(Math.min(swHeight, seHeight), Math.min(neHeight, nwHeight));
+						int maxHeight = Math.max(Math.max(swHeight, seHeight), Math.max(neHeight, nwHeight));
+						if (material != null
+							&& maxHeight - minHeight <= MAX_SURFACE_DETAIL_SLOPE)
+						{
+							int anchorCount = surfaceAnchorCount(material.type,
+								worldTileX, worldTileZ);
+							for (int anchor = 0; anchor < anchorCount; ++anchor)
+							{
+								int sampleBase = material.type * 97 + anchor * 3;
+								int hashX = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 1);
+								int hashZ = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 2);
+								int hashSeed = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 3);
+								float tileX = 0.07f + hashUnit(hashX) * 0.86f;
+								float tileZ = 0.07f + hashUnit(hashZ) * 0.86f;
+								float height = paintHeight(tileX, tileZ,
+									swHeight, seHeight, neHeight, nwHeight);
+								writeOffset = putSurfaceDetailAnchor(anchors, writeOffset,
+									(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
+									height,
+									(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
+									hashUnit(hashSeed), material);
+							}
+						}
+					}
+					else
+					{
+						SceneTileModel model = tile.getSceneTileModel();
+						if (model != null)
+						{
+							writeOffset = appendModelSurfaceDetails(anchors, writeOffset,
+								model, xoff, zoff, worldTileX, worldTileZ, level);
+						}
+					}
+				}
+			}
+
+			zone.surfaceDetailLevelOffsets[level] = writeOffset;
+		}
+
+		zone.surfaceDetailAnchors = Arrays.copyOf(anchors, writeOffset);
+	}
+
+	private static int appendModelSurfaceDetails(float[] anchors, int writeOffset,
+		SceneTileModel model, int xoff, int zoff,
+		int worldTileX, int worldTileZ, int level)
+	{
+		int[] faceX = model.getFaceX();
+		int[] faceY = model.getFaceY();
+		int[] faceZ = model.getFaceZ();
+		int[] vertexX = model.getVertexX();
+		int[] vertexY = model.getVertexY();
+		int[] vertexZ = model.getVertexZ();
+		int[] textures = model.getTriangleTextureId();
+		int[] colorA = model.getTriangleColorA();
+		int[] colorB = model.getTriangleColorB();
+		int[] colorC = model.getTriangleColorC();
+		int faceCount = Math.min(faceX.length,
+			Math.min(faceY.length, faceZ.length));
+		SurfaceDetailMaterial[] materials = new SurfaceDetailMaterial[faceCount];
+		boolean[] sampleable = new boolean[faceCount];
+
+		for (int face = 0; face < faceCount; ++face)
+		{
+			if (!validModelFace(face, faceX, faceY, faceZ,
+				vertexX, vertexY, vertexZ, colorA))
+			{
+				continue;
+			}
+
+			int texture = textures != null && face < textures.length
+				? textures[face] : -1;
+			int a = faceX[face];
+			int b = faceY[face];
+			int c = faceZ[face];
+			int minHeight = Math.min(vertexY[a], Math.min(vertexY[b], vertexY[c]));
+			int maxHeight = Math.max(vertexY[a], Math.max(vertexY[b], vertexY[c]));
+			long areaTwice = Math.abs((long) (vertexX[b] - vertexX[a])
+				* (vertexZ[c] - vertexZ[a])
+				- (long) (vertexZ[b] - vertexZ[a])
+				* (vertexX[c] - vertexX[a]));
+			sampleable[face] = areaTwice > 0
+				&& maxHeight - minHeight <= MAX_SURFACE_DETAIL_SLOPE;
+			if (!sampleable[face] || isWaterTexture(texture))
+			{
+				continue;
+			}
+
+			int hslA = colorA[face];
+			int hslB = face < colorB.length ? colorB[face] : hslA;
+			int hslC = face < colorC.length ? colorC[face] : hslA;
+			materials[face] = surfaceMaterial(model, face,
+				texture, hslA, hslB, hslC);
+		}
+
+		int tileBaseX = modelTileBase(vertexX);
+		int tileBaseZ = modelTileBase(vertexZ);
+		for (int type = SURFACE_DETAIL_GRASS; type <= SURFACE_DETAIL_PEBBLE; ++type)
+		{
+			int anchorCount = surfaceAnchorCount(type, worldTileX, worldTileZ);
+			for (int anchor = 0; anchor < anchorCount; ++anchor)
+			{
+				int sampleBase = 211 + type * 97 + anchor * 3;
+				int hashX = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 1);
+				int hashZ = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 2);
+				int hashSeed = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 3);
+				float tileX = 0.04f + hashUnit(hashX) * 0.92f;
+				float tileZ = 0.04f + hashUnit(hashZ) * 0.92f;
+				float sampleX = tileBaseX + tileX * Perspective.LOCAL_TILE_SIZE;
+				float sampleZ = tileBaseZ + tileZ * Perspective.LOCAL_TILE_SIZE;
+				int face = containingModelFace(sampleX, sampleZ, sampleable,
+					faceX, faceY, faceZ, vertexX, vertexZ);
+				if (face < 0 || materials[face] == null
+					|| materials[face].type != type)
+				{
+					continue;
+				}
+
+				float height = modelFaceHeight(sampleX, sampleZ, face,
+					faceX, faceY, faceZ, vertexX, vertexY, vertexZ);
+				writeOffset = putSurfaceDetailAnchor(anchors, writeOffset,
+					(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
+					height,
+					(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
+					hashUnit(hashSeed), materials[face]);
+			}
+		}
+		return writeOffset;
+	}
+
+	private static int modelTileBase(int[] vertices)
+	{
+		int minimum = Integer.MAX_VALUE;
+		for (int vertex : vertices)
+		{
+			minimum = Math.min(minimum, vertex);
+		}
+		return Math.floorDiv(minimum, Perspective.LOCAL_TILE_SIZE)
+			* Perspective.LOCAL_TILE_SIZE;
+	}
+
+	private static boolean validModelFace(int face,
+		int[] faceX, int[] faceY, int[] faceZ,
+		int[] vertexX, int[] vertexY, int[] vertexZ, int[] colorA)
+	{
+		if (face >= colorA.length || colorA[face] == INVISIBLE_HSL)
+		{
+			return false;
+		}
+		int a = faceX[face];
+		int b = faceY[face];
+		int c = faceZ[face];
+		int vertexCount = Math.min(vertexX.length,
+			Math.min(vertexY.length, vertexZ.length));
+		return a >= 0 && a < vertexCount
+			&& b >= 0 && b < vertexCount
+			&& c >= 0 && c < vertexCount;
+	}
+
+	private static int containingModelFace(float sampleX, float sampleZ,
+		boolean[] sampleable,
+		int[] faceX, int[] faceY, int[] faceZ,
+		int[] vertexX, int[] vertexZ)
+	{
+		for (int face = 0; face < sampleable.length; ++face)
+		{
+			if (!sampleable[face])
+			{
+				continue;
+			}
+			int a = faceX[face];
+			int b = faceY[face];
+			int c = faceZ[face];
+			float denominator = (vertexZ[b] - vertexZ[c]) * (float) (vertexX[a] - vertexX[c])
+				+ (vertexX[c] - vertexX[b]) * (float) (vertexZ[a] - vertexZ[c]);
+			if (Math.abs(denominator) < 0.0001f)
+			{
+				continue;
+			}
+			float weightA = ((vertexZ[b] - vertexZ[c]) * (sampleX - vertexX[c])
+				+ (vertexX[c] - vertexX[b]) * (sampleZ - vertexZ[c])) / denominator;
+			float weightB = ((vertexZ[c] - vertexZ[a]) * (sampleX - vertexX[c])
+				+ (vertexX[a] - vertexX[c]) * (sampleZ - vertexZ[c])) / denominator;
+			float weightC = 1.0f - weightA - weightB;
+			if (weightA >= -0.0001f && weightB >= -0.0001f && weightC >= -0.0001f)
+			{
+				return face;
+			}
+		}
+		return -1;
+	}
+
+	private static float modelFaceHeight(float sampleX, float sampleZ, int face,
+		int[] faceX, int[] faceY, int[] faceZ,
+		int[] vertexX, int[] vertexY, int[] vertexZ)
+	{
+		int a = faceX[face];
+		int b = faceY[face];
+		int c = faceZ[face];
+		float denominator = (vertexZ[b] - vertexZ[c]) * (float) (vertexX[a] - vertexX[c])
+			+ (vertexX[c] - vertexX[b]) * (float) (vertexZ[a] - vertexZ[c]);
+		float weightA = ((vertexZ[b] - vertexZ[c]) * (sampleX - vertexX[c])
+			+ (vertexX[c] - vertexX[b]) * (sampleZ - vertexZ[c])) / denominator;
+		float weightB = ((vertexZ[c] - vertexZ[a]) * (sampleX - vertexX[c])
+			+ (vertexX[a] - vertexX[c]) * (sampleZ - vertexZ[c])) / denominator;
+		float weightC = 1.0f - weightA - weightB;
+		return weightA * vertexY[a] + weightB * vertexY[b] + weightC * vertexY[c];
+	}
+
+	private static float paintHeight(float tileX, float tileZ,
+		int swHeight, int seHeight, int neHeight, int nwHeight)
+	{
+		if (tileX + tileZ <= 1.0f)
+		{
+			return swHeight
+				+ (seHeight - swHeight) * tileX
+				+ (nwHeight - swHeight) * tileZ;
+		}
+		return neHeight
+			+ (nwHeight - neHeight) * (1.0f - tileX)
+			+ (seHeight - neHeight) * (1.0f - tileZ);
+	}
+
+	private static int putSurfaceDetailAnchor(float[] anchors, int writeOffset,
+		float x, float y, float z, float seed, SurfaceDetailMaterial material)
+	{
+		anchors[writeOffset++] = x;
+		anchors[writeOffset++] = y;
+		anchors[writeOffset++] = z;
+		anchors[writeOffset++] = seed;
+		anchors[writeOffset++] = material.packedHsl;
+		anchors[writeOffset++] = material.type;
+		return writeOffset;
+	}
+
+	private static int surfaceAnchorCount(int type, int worldTileX, int worldTileZ)
+	{
+		int hash = surfaceHash(worldTileX, worldTileZ, 0, type * 53);
+		if (type == SURFACE_DETAIL_GRASS)
+		{
+			return 7 + (hash & 1);
+		}
+		return 2 + Math.floorMod(hash, 3);
+	}
+
+	private static SurfaceDetailMaterial surfaceMaterial(SceneTilePaint paint)
+	{
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(paint);
+		if (!surfaceMaterial.supportsSurfaceDetails())
+		{
+			return null;
+		}
+		int[] colors = {
+			paint.getSwColor(), paint.getSeColor(),
+			paint.getNeColor(), paint.getNwColor()
+		};
+		for (int color : colors)
+		{
+			if (color == INVISIBLE_HSL)
+			{
+				return null;
+			}
+		}
+
+		// Textured tile corner values are lighting intensities rather than packed
+		// HSL. Convert the paint's authored RGB material hint instead.
+		if (paint.getTexture() >= 0)
+		{
+			int rgb = paint.getRBG();
+			if (rgb < 0 || rgb > 0xffffff)
+			{
+				return null;
+			}
+			int packedHsl = SurfaceMaterialClassifier.rgbToPackedHsl(rgb);
+			return new SurfaceDetailMaterial(
+				surfaceMaterial.getDetailType(), packedHsl);
+		}
+
+		return surfaceMaterialFromHsl(colors, 3);
+	}
+
+	private static SurfaceDetailMaterial surfaceMaterial(
+		SceneTileModel model, int face,
+		int texture, int colorA, int colorB, int colorC)
+	{
+		int[] colors = {colorA, colorB, colorC};
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyTerrainFace(
+			model, face, texture, colorA, colorB, colorC);
+		if (!surfaceMaterial.supportsSurfaceDetails())
+		{
+			return null;
+		}
+		if (texture >= 0)
+		{
+			int layer = SurfaceMaterialClassifier.terrainLayerForFace(
+				model.getShape(), face);
+			int rgb = layer == 1 ? model.getModelOverlay()
+				: layer == 0 ? model.getModelUnderlay() : -1;
+			if (rgb >= 0 && rgb <= 0xffffff)
+			{
+				return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(),
+					SurfaceMaterialClassifier.rgbToPackedHsl(rgb));
+			}
+
+			// Textured triangle colors are lightness values. Preserve that value as
+			// a neutral fallback rather than interpreting the low integer as packed
+			// hue/saturation and generating a black detail instance.
+			int luminance = Math.max(0, Math.min(127,
+				Math.round(((colorA & 127) + (colorB & 127) + (colorC & 127)) / 3.0f)));
+			return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(), luminance);
+		}
+		return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(),
+			averagePackedHsl(colors, surfaceMaterial.getDetailType()));
+	}
+
+	private static SurfaceDetailMaterial surfaceMaterialFromHsl(int[] colors,
+		int requiredMatches)
+	{
+		int grass = 0;
+		int pebble = 0;
+		for (int color : colors)
+		{
+			int type = SurfaceMaterialClassifier.classifyPackedHsl(color).getDetailType();
+			grass += type == SURFACE_DETAIL_GRASS ? 1 : 0;
+			pebble += type == SURFACE_DETAIL_PEBBLE ? 1 : 0;
+		}
+		int type = grass >= requiredMatches ? SURFACE_DETAIL_GRASS
+			: pebble >= requiredMatches ? SURFACE_DETAIL_PEBBLE
+			: SURFACE_DETAIL_NONE;
+		return type == SURFACE_DETAIL_NONE ? null
+			: new SurfaceDetailMaterial(type, averagePackedHsl(colors, type));
+	}
+
+	private static boolean validPackedHsl(int color)
+	{
+		return SurfaceMaterialClassifier.isValidPackedHsl(color);
+	}
+
+	private static int averagePackedHsl(int[] colors, int surfaceType)
+	{
+		int firstHue = -1;
+		int hueDelta = 0;
+		int saturation = 0;
+		int luminance = 0;
+		int count = 0;
+		for (int color : colors)
+		{
+			if (!validPackedHsl(color)
+				|| SurfaceMaterialClassifier.classifyPackedHsl(color).getDetailType()
+					!= surfaceType)
+			{
+				continue;
+			}
+			int hue = color >> 10 & 63;
+			if (firstHue < 0)
+			{
+				firstHue = hue;
+			}
+			int delta = hue - firstHue;
+			if (delta > 32)
+			{
+				delta -= 64;
+			}
+			else if (delta < -32)
+			{
+				delta += 64;
+			}
+			hueDelta += delta;
+			saturation += color >> 7 & 7;
+			luminance += color & 127;
+			++count;
+		}
+		if (count == 0)
+		{
+			return 0;
+		}
+		int hue = Math.round(firstHue + hueDelta / (float) count) & 63;
+		return hue << 10
+			| Math.round(saturation / (float) count) << 7
+			| Math.round(luminance / (float) count);
+	}
+
+	private static int surfaceHash(int x, int z, int level, int sample)
+	{
+		int hash = x * 0x1f1f1f1f ^ z * 0x45d9f3b ^ level * 0x27d4eb2d ^ sample * 0x165667b1;
+		hash ^= hash >>> 16;
+		hash *= 0x7feb352d;
+		hash ^= hash >>> 15;
+		hash *= 0x846ca68b;
+		return hash ^ hash >>> 16;
+	}
+
+	private static float hashUnit(int hash)
+	{
+		return (hash & 0x00ffffff) / 16777216f;
 	}
 
 	private void uploadZoneLevel(Scene scene, Zone zone, int mzx, int mzz, int level, boolean visbelow, Set<Integer> roofIds, GpuIntBuffer vb, GpuIntBuffer ab)
@@ -210,25 +761,50 @@ class SceneUploader
 					if (t != null)
 					{
 						this.rid = rid;
-						uploadZoneTile(scene, zone, t, vb, ab);
+						uploadZoneTile(scene, zone, t, level, vb, ab);
 					}
 				}
 			}
 		}
 	}
 
-	private void zoneSize(Zone z, Tile t)
+	private void zoneSize(Scene scene, Zone z, Tile t, int storagePlane)
 	{
 		SceneTilePaint paint = t.getSceneTilePaint();
 		if (paint != null)
 		{
 			z.sizeO += 2;
+			if (isWaterTexture(paint.getTexture())
+				&& paint.getNeColor() != INVISIBLE_HSL
+				&& findNearestTerrainMaterial(scene, storagePlane, t,
+					tileCenterX(scene, t), tileCenterY(scene, t)) != null)
+			{
+				z.sizeO += 2;
+			}
 		}
 
 		SceneTileModel model = t.getSceneTileModel();
 		if (model != null)
 		{
 			z.sizeO += model.getFaceX().length;
+			int[] triangleTextures = model.getTriangleTextureId();
+			int[] triangleColors = model.getTriangleColorA();
+			TerrainMaterial material = triangleTextures != null
+				? findNearestTerrainMaterial(scene, storagePlane, t,
+					tileCenterX(scene, t), tileCenterY(scene, t)) : null;
+			if (material != null)
+			{
+				for (int face = 0; face < model.getFaceX().length; ++face)
+				{
+					if (face < triangleTextures.length
+						&& isWaterTexture(triangleTextures[face])
+						&& face < triangleColors.length
+						&& triangleColors[face] != INVISIBLE_HSL)
+					{
+						++z.sizeO;
+					}
+				}
+			}
 		}
 
 		WallObject wallObject = t.getWallObject();
@@ -271,11 +847,17 @@ class SceneUploader
 		Tile bridge = t.getBridge();
 		if (bridge != null)
 		{
-			zoneSize(z, bridge);
+			zoneSize(scene, z, bridge, storagePlane);
 		}
 	}
 
-	private int uploadZoneTile(Scene scene, Zone zone, Tile t, GpuIntBuffer vertexBuffer, GpuIntBuffer ab)
+	private int uploadZoneTile(
+		Scene scene,
+		Zone zone,
+		Tile t,
+		int storagePlane,
+		GpuIntBuffer vertexBuffer,
+		GpuIntBuffer ab)
 	{
 		int len = 0;
 		boolean drawTile = renderCallbackManager.drawTile(scene, t);
@@ -284,20 +866,38 @@ class SceneUploader
 		if (paint != null && drawTile)
 		{
 			Point tilePoint = t.getSceneLocation();
-			len = upload(scene, paint,
+			int waterStart = vertexBuffer.getBuffer().position();
+			int surfaceLength = upload(scene, t, paint, storagePlane,
 				t.getRenderLevel(), tilePoint.getX(), tilePoint.getY(),
 				vertexBuffer,
 				tilePoint.getX() * 128 - basex, tilePoint.getY() * 128 - basez
 			);
+			len = surfaceLength;
+			if (surfaceLength > 0 && isWaterTexture(paint.getTexture()))
+			{
+				zone.addWaterRange(waterStart,
+					vertexBuffer.getBuffer().position(), rid, level);
+
+				TerrainMaterial material = findNearestTerrainMaterial(
+					scene, storagePlane, t, tileCenterX(scene, t), tileCenterY(scene, t));
+				if (material != null)
+				{
+					len += uploadWaterBed(scene, t, storagePlane,
+						material, vertexBuffer,
+						tilePoint.getX() * Perspective.LOCAL_TILE_SIZE - basex,
+						tilePoint.getY() * Perspective.LOCAL_TILE_SIZE - basez);
+				}
+			}
 		}
 
 		SceneTileModel model = t.getSceneTileModel();
 		if (model != null && drawTile)
 		{
 			Point tilePoint = t.getSceneLocation();
-			len += upload(model, tilePoint.getX() << 7, tilePoint.getY() << 7, vertexBuffer);
+			len += upload(scene, zone, t, model, storagePlane,
+				tilePoint.getX() << 7,
+				tilePoint.getY() << 7, vertexBuffer);
 		}
-
 		WallObject wallObject = t.getWallObject();
 		if (wallObject != null && renderCallbackManager.drawObject(scene, wallObject))
 		{
@@ -358,7 +958,11 @@ class SceneUploader
 		Tile bridge = t.getBridge();
 		if (bridge != null)
 		{
-			len += uploadZoneTile(scene, zone, bridge, vertexBuffer, ab);
+			// Bridge geometry can belong to another roof plane. Preserve it in the
+			// atmospheric caster set unless it is uploaded through its own normal
+			// tile/roof grouping, where its coverage can be classified reliably.
+			len += uploadZoneTile(scene, zone, bridge, storagePlane,
+				vertexBuffer, ab);
 		}
 
 		return len;
@@ -440,7 +1044,9 @@ class SceneUploader
 		}
 	}
 
-	private int upload(Scene scene, SceneTilePaint tile, int tileZ, int tileX, int tileY, GpuIntBuffer vertexBuffer, int lx, int lz)
+	private int upload(Scene scene, Tile sceneTile, SceneTilePaint tile,
+		int storagePlane, int tileZ, int tileX, int tileY,
+		GpuIntBuffer vertexBuffer, int lx, int lz)
 	{
 		tileX += scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
 		tileY += scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
@@ -451,10 +1057,17 @@ class SceneUploader
 		final int neHeight = tileHeights[tileZ][tileX + 1][tileY + 1];
 		final int nwHeight = tileHeights[tileZ][tileX][tileY + 1];
 
-		final int swColor = tile.getSwColor();
-		final int seColor = tile.getSeColor();
-		final int neColor = tile.getNeColor();
-		final int nwColor = tile.getNwColor();
+		int blendStrength = config.terrainTextureBlending()
+			? config.terrainBlendStrength()
+			: 0;
+		final int swColor = blendTerrainCornerColor(scene, sceneTile, tile,
+			tileX, tileY, 0, 0, blendStrength);
+		final int seColor = blendTerrainCornerColor(scene, sceneTile, tile,
+			tileX, tileY, 1, 0, blendStrength);
+		final int neColor = blendTerrainCornerColor(scene, sceneTile, tile,
+			tileX, tileY, 1, 1, blendStrength);
+		final int nwColor = blendTerrainCornerColor(scene, sceneTile, tile,
+			tileX, tileY, 0, 1, blendStrength);
 
 		if (neColor == 12345678)
 		{
@@ -485,18 +1098,31 @@ class SceneUploader
 		final int lz3 = lz + Perspective.LOCAL_TILE_SIZE;
 		final int hsl3 = nwColor;
 
-		int tex = tile.getTexture() + 1;
-		int shoreEdges = 0;
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(tile);
+		int tex = surfaceMaterial.packTextureCode(tile.getTexture() + 1);
+		int shoreEdges = TERRAIN_FLAG;
 		if (isWaterTexture(tile.getTexture()))
 		{
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY) ? 1 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY) ? 2 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX, tileY - 1) ? 4 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX, tileY + 1) ? 8 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY - 1) ? 16 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY - 1) ? 32 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX + 1, tileY + 1) ? 64 : 0;
-			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY + 1) ? 128 : 0;
+			shoreEdges |= waterShoreMask(scene, storagePlane,
+				sceneTile.getRenderLevel(), tileX, tileY);
+		}
+		else if (tile.getTexture() >= 0)
+		{
+			int plane = sceneTile.getPlane();
+			int material = terrainMaterialSignature(scene, plane, tileX, tileY);
+			Tile[][][] tiles = scene.getExtendedTiles();
+			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
+				tileX - 1, tileY, sceneTile, tile.getTexture(), material) != null
+				? TERRAIN_BLEND_WEST : 0;
+			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
+				tileX + 1, tileY, sceneTile, tile.getTexture(), material) != null
+				? TERRAIN_BLEND_EAST : 0;
+			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
+				tileX, tileY - 1, sceneTile, tile.getTexture(), material) != null
+				? TERRAIN_BLEND_SOUTH : 0;
+			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
+				tileX, tileY + 1, sceneTile, tile.getTexture(), material) != null
+				? TERRAIN_BLEND_NORTH : 0;
 		}
 		vertexBuffer.put22224(lx2, ly2, lz2, hsl2);
 		vertexBuffer.put2222(tex, 256, 256, shoreEdges);
@@ -519,54 +1145,933 @@ class SceneUploader
 		return 6;
 	}
 
-	private static boolean isWaterTexture(int textureId)
+	private int uploadWaterBed(
+		Scene scene,
+		Tile sceneTile,
+		int storagePlane,
+		TerrainMaterial material,
+		GpuIntBuffer vertexBuffer,
+		int lx,
+		int lz)
 	{
-		return textureId == 1
-			|| textureId == 24
-			|| textureId == 25
-			|| textureId >= 130 && textureId <= 189
-			|| textureId == 208;
+		Point tilePoint = sceneTile.getSceneLocation();
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int tileX = tilePoint.getX() + sceneOffset;
+		int tileY = tilePoint.getY() + sceneOffset;
+		int renderLevel = sceneTile.getRenderLevel();
+		int[][][] tileHeights = scene.getTileHeights();
+
+		int swHeight = tileHeights[renderLevel][tileX][tileY]
+			+ waterBedDepthAt(scene, storagePlane, renderLevel, tileX, tileY);
+		int seHeight = tileHeights[renderLevel][tileX + 1][tileY]
+			+ waterBedDepthAt(scene, storagePlane, renderLevel, tileX + 1, tileY);
+		int neHeight = tileHeights[renderLevel][tileX + 1][tileY + 1]
+			+ waterBedDepthAt(scene, storagePlane, renderLevel, tileX + 1, tileY + 1);
+		int nwHeight = tileHeights[renderLevel][tileX][tileY + 1]
+			+ waterBedDepthAt(scene, storagePlane, renderLevel, tileX, tileY + 1);
+		int tileSize = Perspective.LOCAL_TILE_SIZE;
+		int texture = SurfaceMaterial.SAND.packTextureCode(material.texture + 1);
+		int terrainFlags = waterBedTerrainFlags(material);
+
+		vertexBuffer.put22224(lx + tileSize, neHeight, lz + tileSize,
+			markWaterBedColor(material, material.neColor));
+		vertexBuffer.put2222(texture, 256, 256, terrainFlags);
+		vertexBuffer.put22224(lx, nwHeight, lz + tileSize,
+			markWaterBedColor(material, material.nwColor));
+		vertexBuffer.put2222(texture, 0, 256, terrainFlags);
+		vertexBuffer.put22224(lx + tileSize, seHeight, lz,
+			markWaterBedColor(material, material.seColor));
+		vertexBuffer.put2222(texture, 256, 0, terrainFlags);
+
+		vertexBuffer.put22224(lx, swHeight, lz,
+			markWaterBedColor(material, material.swColor));
+		vertexBuffer.put2222(texture, 0, 0, terrainFlags);
+		vertexBuffer.put22224(lx + tileSize, seHeight, lz,
+			markWaterBedColor(material, material.seColor));
+		vertexBuffer.put2222(texture, 256, 0, terrainFlags);
+		vertexBuffer.put22224(lx, nwHeight, lz + tileSize,
+			markWaterBedColor(material, material.nwColor));
+		vertexBuffer.put2222(texture, 0, 256, terrainFlags);
+		return 6;
 	}
 
-	private static boolean isWaterTile(Scene scene, int tileZ, int tileX, int tileY)
+	private static int markWaterBedColor(TerrainMaterial material, int hsl)
 	{
+		return WATER_BED_ALPHA_MARKER << 24
+			| sandWaterBedColor(hsl, material.texture >= 0);
+	}
+
+	private static int sandWaterBedColor(int hsl, boolean textured)
+	{
+		int luminance = hsl & 127;
+		int freshLuminance = Math.max(58, Math.min(127,
+			Math.round(luminance * 0.58f
+				+ WATER_BED_SAND_LUMINANCE * 0.42f)));
+		if (textured)
+		{
+			// Textured terrain uses the packed color as its light value in the
+			// stock texture path. Preserve those upper bits (and therefore the
+			// copied material detail) while lifting the muddy/dark shoreline tone.
+			return hsl & 0xff80 | freshLuminance;
+		}
+
+		int hue = hsl >> 10 & 63;
+		int hueDelta = WATER_BED_SAND_HUE - hue;
+		if (hueDelta > 32)
+		{
+			hueDelta -= 64;
+		}
+		else if (hueDelta < -32)
+		{
+			hueDelta += 64;
+		}
+		int sandHue = hue + Math.round(hueDelta * 0.72f) & 63;
+		int saturation = hsl >> 7 & 7;
+		int sandSaturation = Math.max(0, Math.min(7,
+			Math.round(saturation * 0.35f
+				+ WATER_BED_SAND_SATURATION * 0.65f)));
+		return sandHue << 10 | sandSaturation << 7 | freshLuminance;
+	}
+
+	/**
+	 * Smooth the duplicated colors at a painted terrain grid vertex. RuneLite
+	 * stores each tile's four corners independently, so compatible neighboring
+	 * tiles can disagree at the exact same world position and expose a hard grid
+	 * line. Only equal-texture, non-water paint tiles on the same rendered level
+	 * participate; paths, shores, overlays, and deliberate material boundaries
+	 * therefore remain crisp.
+	 */
+	private static int blendTerrainCornerColor(
+		Scene scene,
+		Tile sceneTile,
+		SceneTilePaint paint,
+		int tileX,
+		int tileY,
+		int cornerX,
+		int cornerY,
+		int blendPercent)
+	{
+		int original = getPaintCornerColor(paint, cornerX, cornerY);
+		int texture = paint.getTexture();
+		if (blendPercent <= 0 || original == INVISIBLE_HSL || isWaterTexture(texture))
+		{
+			return original;
+		}
+
 		Tile[][][] tiles = scene.getExtendedTiles();
-		if (tileZ < 0 || tileZ >= tiles.length
-			|| tileX < 0 || tileX >= tiles[tileZ].length
-			|| tileY < 0 || tileY >= tiles[tileZ][tileX].length)
+		int plane = sceneTile.getPlane();
+		if (plane < 0 || plane >= tiles.length)
+		{
+			return original;
+		}
+
+		int gridX = tileX + cornerX;
+		int gridY = tileY + cornerY;
+		int material = terrainMaterialSignature(scene, plane, tileX, tileY);
+		float strength = Math.min(blendPercent, 100) / 100f;
+
+		if (texture >= 0)
+		{
+			int sum = original;
+			int count = 1;
+			for (int neighborX = gridX - 1; neighborX <= gridX; ++neighborX)
+			{
+				for (int neighborY = gridY - 1; neighborY <= gridY; ++neighborY)
+				{
+					Tile neighbor = getTerrainBlendNeighbor(scene, tiles, plane,
+						neighborX, neighborY, sceneTile, texture, material);
+					if (neighbor == null)
+					{
+						continue;
+					}
+
+					int candidate = getPaintCornerColor(neighbor.getSceneTilePaint(),
+						gridX - neighborX, gridY - neighborY);
+					if (candidate != INVISIBLE_HSL && Math.abs(candidate - original) <= 24)
+					{
+						sum += candidate;
+						++count;
+					}
+				}
+			}
+
+			float average = sum / (float) count;
+			return Math.max(0, Math.min(127,
+				Math.round(original + (average - original) * strength)));
+		}
+
+		int originalHue = original >> 10 & 63;
+		int originalSaturation = original >> 7 & 7;
+		int originalLuminance = original & 127;
+		int hueDeltaSum = 0;
+		int saturationSum = originalSaturation;
+		int luminanceSum = originalLuminance;
+		int count = 1;
+
+		for (int neighborX = gridX - 1; neighborX <= gridX; ++neighborX)
+		{
+			for (int neighborY = gridY - 1; neighborY <= gridY; ++neighborY)
+			{
+				Tile neighbor = getTerrainBlendNeighbor(scene, tiles, plane,
+					neighborX, neighborY, sceneTile, texture, material);
+				if (neighbor == null)
+				{
+					continue;
+				}
+
+				int candidate = getPaintCornerColor(neighbor.getSceneTilePaint(),
+					gridX - neighborX, gridY - neighborY);
+				if (!compatibleTerrainHsl(original, candidate))
+				{
+					continue;
+				}
+
+				int candidateHue = candidate >> 10 & 63;
+				int hueDelta = candidateHue - originalHue;
+				if (hueDelta > 32)
+				{
+					hueDelta -= 64;
+				}
+				else if (hueDelta < -32)
+				{
+					hueDelta += 64;
+				}
+
+				hueDeltaSum += hueDelta;
+				saturationSum += candidate >> 7 & 7;
+				luminanceSum += candidate & 127;
+				++count;
+			}
+		}
+
+		int hue = originalHue + Math.round(hueDeltaSum / (float) count * strength);
+		int averageSaturation = Math.round(saturationSum / (float) count);
+		int averageLuminance = Math.round(luminanceSum / (float) count);
+		int saturation = Math.round(originalSaturation
+			+ (averageSaturation - originalSaturation) * strength);
+		int luminance = Math.round(originalLuminance
+			+ (averageLuminance - originalLuminance) * strength);
+
+		return (hue & 63) << 10
+			| Math.max(0, Math.min(7, saturation)) << 7
+			| Math.max(0, Math.min(127, luminance));
+	}
+
+	private static Tile getTerrainBlendNeighbor(
+		Scene scene,
+		Tile[][][] tiles,
+		int plane,
+		int tileX,
+		int tileY,
+		Tile current,
+		int texture,
+		int material)
+	{
+		if (tileX < 0 || tileX >= tiles[plane].length
+			|| tileY < 0 || tileY >= tiles[plane][tileX].length)
+		{
+			return null;
+		}
+
+		Tile neighbor = tiles[plane][tileX][tileY];
+		if (neighbor == null || neighbor == current
+			|| neighbor.getRenderLevel() != current.getRenderLevel())
+		{
+			return null;
+		}
+
+		SceneTilePaint neighborPaint = neighbor.getSceneTilePaint();
+		return neighborPaint != null
+			&& neighborPaint.getTexture() == texture
+			&& (texture >= 0
+				|| terrainMaterialSignature(scene, plane, tileX, tileY) == material)
+			? neighbor
+			: null;
+	}
+
+	private static int terrainMaterialSignature(Scene scene, int plane, int tileX, int tileY)
+	{
+		short[][][] underlays = scene.getUnderlayIds();
+		short[][][] overlays = scene.getOverlayIds();
+		if (plane < 0 || plane >= underlays.length
+			|| tileX < 0 || tileX >= underlays[plane].length
+			|| tileY < 0 || tileY >= underlays[plane][tileX].length)
+		{
+			return -1;
+		}
+
+		return underlays[plane][tileX][tileY] & 0xffff
+			| (overlays[plane][tileX][tileY] & 0xffff) << 16;
+	}
+
+	private static int getPaintCornerColor(SceneTilePaint paint, int cornerX, int cornerY)
+	{
+		if (cornerY == 0)
+		{
+			return cornerX == 0 ? paint.getSwColor() : paint.getSeColor();
+		}
+		return cornerX == 0 ? paint.getNwColor() : paint.getNeColor();
+	}
+
+	private static boolean compatibleTerrainHsl(int first, int second)
+	{
+		if (second == INVISIBLE_HSL)
 		{
 			return false;
 		}
 
-		Tile neighbor = tiles[tileZ][tileX][tileY];
-		if (neighbor == null)
-		{
-			return false;
-		}
+		int firstHue = first >> 10 & 63;
+		int secondHue = second >> 10 & 63;
+		int hueDifference = Math.abs(firstHue - secondHue);
+		hueDifference = Math.min(hueDifference, 64 - hueDifference);
+		int firstSaturation = first >> 7 & 7;
+		int secondSaturation = second >> 7 & 7;
+		int luminanceDifference = Math.abs((first & 127) - (second & 127));
 
-		SceneTilePaint paint = neighbor.getSceneTilePaint();
-		if (paint != null && isWaterTexture(paint.getTexture()))
+		boolean neutralColors = firstSaturation <= 1 && secondSaturation <= 1;
+		return (neutralColors || hueDifference <= 5)
+			&& Math.abs(firstSaturation - secondSaturation) <= 2
+			&& luminanceDifference <= 28;
+	}
+
+	private static boolean isWaterTexture(int textureId)
+	{
+		return SurfaceMaterialClassifier.isWaterTexture(textureId);
+	}
+
+	private static float tileCenterX(Scene scene, Tile tile)
+	{
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		return tile.getSceneLocation().getX() + sceneOffset + 0.5f;
+	}
+
+	private static float tileCenterY(Scene scene, Tile tile)
+	{
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		return tile.getSceneLocation().getY() + sceneOffset + 0.5f;
+	}
+
+	private static boolean validTileCell(Tile[][][] tiles, int storagePlane,
+		int tileX, int tileY)
+	{
+		return storagePlane >= 0 && storagePlane < tiles.length
+			&& tileX >= 0 && tileX < tiles[storagePlane].length
+			&& tileY >= 0 && tileY < tiles[storagePlane][tileX].length;
+	}
+
+	private static boolean tileHasWater(Tile tile)
+	{
+		SceneTilePaint paint = tile.getSceneTilePaint();
+		if (paint != null && paint.getNeColor() != INVISIBLE_HSL
+			&& isWaterTexture(paint.getTexture()))
 		{
 			return true;
 		}
 
-		SceneTileModel model = neighbor.getSceneTileModel();
-		if (model != null && model.getTriangleTextureId() != null)
+		SceneTileModel model = tile.getSceneTileModel();
+		if (model == null || model.getTriangleTextureId() == null)
 		{
-			for (int textureId : model.getTriangleTextureId())
+			return false;
+		}
+
+		int[] textures = model.getTriangleTextureId();
+		int[] colors = model.getTriangleColorA();
+		int faceCount = Math.min(textures.length, colors.length);
+		for (int face = 0; face < faceCount; ++face)
+		{
+			if (colors[face] != INVISIBLE_HSL && isWaterTexture(textures[face]))
 			{
-				if (isWaterTexture(textureId))
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean modelHasVisibleNonWater(SceneTileModel model)
+	{
+		if (model == null)
+		{
+			return false;
+		}
+
+		int[] colors = model.getTriangleColorA();
+		int[] textures = model.getTriangleTextureId();
+		for (int face = 0; face < colors.length; ++face)
+		{
+			int texture = textures != null && face < textures.length
+				? textures[face] : -1;
+			if (colors[face] != INVISIBLE_HSL && !isWaterTexture(texture))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean tileHasVisibleNonWater(Tile tile)
+	{
+		SceneTilePaint paint = tile.getSceneTilePaint();
+		if (paint != null && paint.getNeColor() != INVISIBLE_HSL
+			&& !isWaterTexture(paint.getTexture()))
+		{
+			return true;
+		}
+		return modelHasVisibleNonWater(tile.getSceneTileModel());
+	}
+
+	private TerrainMaterial findNearestTerrainMaterial(
+		Scene scene,
+		int storagePlane,
+		Tile targetTile,
+		float targetX,
+		float targetY)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		Point targetPoint = targetTile.getSceneLocation();
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int targetTileX = targetPoint.getX() + sceneOffset;
+		int targetTileY = targetPoint.getY() + sceneOffset;
+		int renderLevel = targetTile.getRenderLevel();
+
+		// A mixed shaped tile can carry its own bank beside a water face.
+		TerrainMaterial internalBank = terrainMaterialFromTile(targetTile,
+			targetTileX, targetTileY, targetX, targetY, true);
+		if (internalBank != null)
+		{
+			return internalBank;
+		}
+
+		// Walk outward through connected water only. A geometric square search can
+		// jump across an island or dock and borrow material from an unrelated bank.
+		if (waterBedVisitStamp == Integer.MAX_VALUE)
+		{
+			Arrays.fill(waterBedVisited, 0);
+			waterBedVisitStamp = 1;
+		}
+		else
+		{
+			++waterBedVisitStamp;
+		}
+		int visitStamp = waterBedVisitStamp;
+		int center = WATER_BED_RINGS;
+		int head = 0;
+		int tail = 1;
+		waterBedQueueX[0] = targetTileX;
+		waterBedQueueY[0] = targetTileY;
+		waterBedVisited[center * WATER_BED_SEARCH_DIAMETER + center] = visitStamp;
+
+		for (int waterDistance = 0;
+			waterDistance < WATER_BED_RINGS && head < tail; ++waterDistance)
+		{
+			int levelEnd = tail;
+			TerrainMaterial best = null;
+			while (head < levelEnd)
+			{
+				int waterX = waterBedQueueX[head];
+				int waterY = waterBedQueueY[head++];
+				for (int dx = -1; dx <= 1; ++dx)
+				{
+					for (int dy = -1; dy <= 1; ++dy)
+					{
+						if (dx == 0 && dy == 0)
+						{
+							continue;
+						}
+
+						int sceneX = waterX + dx;
+						int sceneY = waterY + dy;
+						int offsetX = sceneX - targetTileX;
+						int offsetY = sceneY - targetTileY;
+						if (Math.abs(offsetX) > WATER_BED_RINGS
+							|| Math.abs(offsetY) > WATER_BED_RINGS
+							|| !validTileCell(tiles, storagePlane, sceneX, sceneY))
+						{
+							continue;
+						}
+
+						TerrainMaterial candidate = terrainMaterialAtLayer(
+							tiles, storagePlane, renderLevel,
+							sceneX, sceneY, targetX, targetY);
+						if (betterTerrainMaterial(candidate, best))
+						{
+							best = candidate;
+						}
+
+						int visitX = offsetX + center;
+						int visitY = offsetY + center;
+						int visitIndex = visitX * WATER_BED_SEARCH_DIAMETER + visitY;
+						if (waterDistance + 1 < WATER_BED_RINGS
+							&& waterBedVisited[visitIndex] != visitStamp
+							&& isWaterTile(scene, storagePlane, renderLevel,
+								sceneX, sceneY))
+						{
+							waterBedVisited[visitIndex] = visitStamp;
+							waterBedQueueX[tail] = sceneX;
+							waterBedQueueY[tail++] = sceneY;
+						}
+					}
+				}
+			}
+
+			if (best != null)
+			{
+				return best;
+			}
+		}
+		return null;
+	}
+
+	private static TerrainMaterial terrainMaterialAtLayer(
+		Tile[][][] tiles,
+		int preferredStoragePlane,
+		int renderLevel,
+		int sceneX,
+		int sceneY,
+		float targetX,
+		float targetY)
+	{
+		TerrainMaterial waterLayerMaterial = null;
+		TerrainMaterial landLayerMaterial = null;
+		boolean foundWaterLayer = false;
+		for (int pass = 0; pass < tiles.length; ++pass)
+		{
+			int storagePlane = (preferredStoragePlane + pass) % tiles.length;
+			if (!validTileCell(tiles, storagePlane, sceneX, sceneY))
+			{
+				continue;
+			}
+
+			for (Tile tile = tiles[storagePlane][sceneX][sceneY];
+				tile != null; tile = tile.getBridge())
+			{
+				if (tile.getRenderLevel() != renderLevel)
+				{
+					continue;
+				}
+
+				if (tileHasWater(tile))
+				{
+					foundWaterLayer = true;
+					TerrainMaterial material = terrainMaterialFromTile(tile,
+						sceneX, sceneY, targetX, targetY, true);
+					if (betterTerrainMaterial(material, waterLayerMaterial))
+					{
+						waterLayerMaterial = material;
+					}
+				}
+				else
+				{
+					TerrainMaterial material = terrainMaterialFromTile(tile,
+						sceneX, sceneY, targetX, targetY, false);
+					if (betterTerrainMaterial(material, landLayerMaterial))
+					{
+						landLayerMaterial = material;
+					}
+				}
+			}
+		}
+
+		// A bridge column can contain both deck and water tiles. Once matching-layer
+		// water exists, only a non-water face in that very same shaped tile is a bank.
+		return foundWaterLayer ? waterLayerMaterial : landLayerMaterial;
+	}
+
+	private static TerrainMaterial terrainMaterialFromTile(
+		Tile tile,
+		int sceneX,
+		int sceneY,
+		float targetX,
+		float targetY,
+		boolean mixedWaterOnly)
+	{
+		TerrainMaterial best = null;
+		if (!mixedWaterOnly)
+		{
+			SceneTilePaint paint = tile.getSceneTilePaint();
+			if (paint != null && paint.getNeColor() != INVISIBLE_HSL
+				&& !isWaterTexture(paint.getTexture()))
+			{
+				float dx = sceneX + 0.5f - targetX;
+				float dy = sceneY + 0.5f - targetY;
+				best = new TerrainMaterial(paint.getTexture(),
+					paint.getSwColor(), paint.getSeColor(),
+					paint.getNeColor(), paint.getNwColor(),
+					dx * dx + dy * dy, sceneX, sceneY, -1);
+			}
+		}
+
+		SceneTileModel model = tile.getSceneTileModel();
+		if (model == null)
+		{
+			return best;
+		}
+
+		int[] faceX = model.getFaceX();
+		int[] faceY = model.getFaceY();
+		int[] faceZ = model.getFaceZ();
+		int[] vertexX = model.getVertexX();
+		int[] vertexZ = model.getVertexZ();
+		int[] colorA = model.getTriangleColorA();
+		int[] colorB = model.getTriangleColorB();
+		int[] colorC = model.getTriangleColorC();
+		int[] textures = model.getTriangleTextureId();
+		Point tilePoint = tile.getSceneLocation();
+		int localTileX = tilePoint.getX() * Perspective.LOCAL_TILE_SIZE;
+		int localTileY = tilePoint.getY() * Perspective.LOCAL_TILE_SIZE;
+		for (int face = 0; face < faceX.length; ++face)
+		{
+			int texture = textures != null && face < textures.length
+				? textures[face] : -1;
+			if (face >= colorA.length || colorA[face] == INVISIBLE_HSL
+				|| isWaterTexture(texture))
+			{
+				continue;
+			}
+
+			int a = faceX[face];
+			int b = faceY[face];
+			int c = faceZ[face];
+			float sourceX = sceneX + ((vertexX[a] + vertexX[b] + vertexX[c]) / 3f
+				- localTileX) / Perspective.LOCAL_TILE_SIZE;
+			float sourceY = sceneY + ((vertexZ[a] + vertexZ[b] + vertexZ[c]) / 3f
+				- localTileY) / Perspective.LOCAL_TILE_SIZE;
+			float dx = sourceX - targetX;
+			float dy = sourceY - targetY;
+			int firstColor = colorA[face];
+			int secondColor = face < colorB.length ? colorB[face] : firstColor;
+			int thirdColor = face < colorC.length ? colorC[face] : firstColor;
+			int representative = averageTerrainColor(texture,
+				firstColor, secondColor, thirdColor);
+			TerrainMaterial material = new TerrainMaterial(texture,
+				representative, representative, representative, representative,
+				dx * dx + dy * dy, sceneX, sceneY, face);
+			if (betterTerrainMaterial(material, best))
+			{
+				best = material;
+			}
+		}
+		return best;
+	}
+
+	private static boolean betterTerrainMaterial(TerrainMaterial candidate,
+		TerrainMaterial current)
+	{
+		if (candidate == null)
+		{
+			return false;
+		}
+		if (current == null || candidate.distanceSquared < current.distanceSquared - 0.000001f)
+		{
+			return true;
+		}
+		if (Math.abs(candidate.distanceSquared - current.distanceSquared) > 0.000001f)
+		{
+			return false;
+		}
+		if (candidate.sceneX != current.sceneX)
+		{
+			return candidate.sceneX < current.sceneX;
+		}
+		if (candidate.sceneY != current.sceneY)
+		{
+			return candidate.sceneY < current.sceneY;
+		}
+		return candidate.face < current.face;
+	}
+
+	private static int visibleTerrainColor(int color, int fallback)
+	{
+		return color == INVISIBLE_HSL ? fallback : color;
+	}
+
+	private static int waterBedTerrainFlags(TerrainMaterial material)
+	{
+		return TERRAIN_FLAG | (material.texture >= 0
+			? TERRAIN_BLEND_WEST | TERRAIN_BLEND_EAST
+				| TERRAIN_BLEND_SOUTH | TERRAIN_BLEND_NORTH
+			: 0);
+	}
+
+	private static int averageTerrainColor(int texture, int... colors)
+	{
+		int first = INVISIBLE_HSL;
+		int count = 0;
+		long directSum = 0;
+		int hueDeltaSum = 0;
+		int saturationSum = 0;
+		int luminanceSum = 0;
+		for (int color : colors)
+		{
+			if (color == INVISIBLE_HSL)
+			{
+				continue;
+			}
+			if (first == INVISIBLE_HSL)
+			{
+				first = color;
+			}
+			++count;
+			directSum += color;
+			if (texture < 0)
+			{
+				int referenceHue = first >> 10 & 63;
+				int hue = color >> 10 & 63;
+				int delta = hue - referenceHue;
+				if (delta > 32)
+				{
+					delta -= 64;
+				}
+				else if (delta < -32)
+				{
+					delta += 64;
+				}
+				hueDeltaSum += delta;
+				saturationSum += color >> 7 & 7;
+				luminanceSum += color & 127;
+			}
+		}
+
+		if (count == 0)
+		{
+			return 0;
+		}
+		if (texture >= 0)
+		{
+			return (int) Math.round(directSum / (double) count);
+		}
+
+		int referenceHue = first >> 10 & 63;
+		int hue = Math.round(referenceHue + hueDeltaSum / (float) count) & 63;
+		int saturation = Math.max(0, Math.min(7,
+			Math.round(saturationSum / (float) count)));
+		int luminance = Math.max(0, Math.min(127,
+			Math.round(luminanceSum / (float) count)));
+		return hue << 10 | saturation << 7 | luminance;
+	}
+
+	private static boolean hasNonWaterTerrainAtLayer(
+		Tile[][][] tiles, int preferredStoragePlane,
+		int renderLevel, int sceneX, int sceneY)
+	{
+		boolean foundWaterLayer = false;
+		boolean mixedWaterBank = false;
+		boolean landLayer = false;
+		for (int pass = 0; pass < tiles.length; ++pass)
+		{
+			int storagePlane = (preferredStoragePlane + pass) % tiles.length;
+			if (!validTileCell(tiles, storagePlane, sceneX, sceneY))
+			{
+				continue;
+			}
+			for (Tile tile = tiles[storagePlane][sceneX][sceneY];
+				tile != null; tile = tile.getBridge())
+			{
+				if (tile.getRenderLevel() != renderLevel)
+				{
+					continue;
+				}
+				if (tileHasWater(tile))
+				{
+					foundWaterLayer = true;
+					mixedWaterBank |= modelHasVisibleNonWater(tile.getSceneTileModel());
+				}
+				else
+				{
+					landLayer |= tileHasVisibleNonWater(tile);
+				}
+			}
+		}
+		return foundWaterLayer ? mixedWaterBank : landLayer;
+	}
+
+	private static int waterBedDepthAt(
+		Scene scene,
+		int storagePlane,
+		int renderLevel,
+		float gridX,
+		float gridY)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		float nearest = Float.POSITIVE_INFINITY;
+		int centerX = (int) Math.floor(gridX);
+		int centerY = (int) Math.floor(gridY);
+		int searchRadius = WATER_BED_RINGS + 1;
+		for (int sceneX = centerX - searchRadius;
+			sceneX <= centerX + searchRadius; ++sceneX)
+		{
+			for (int sceneY = centerY - searchRadius;
+				sceneY <= centerY + searchRadius; ++sceneY)
+			{
+				if (!validTileCell(tiles, storagePlane, sceneX, sceneY)
+					|| !hasNonWaterTerrainAtLayer(
+						tiles, storagePlane, renderLevel, sceneX, sceneY))
+				{
+					continue;
+				}
+
+				float dx = Math.max(Math.max(sceneX - gridX, 0f),
+					gridX - (sceneX + 1f));
+				float dy = Math.max(Math.max(sceneY - gridY, 0f),
+					gridY - (sceneY + 1f));
+				nearest = Math.min(nearest, (float) Math.sqrt(dx * dx + dy * dy));
+			}
+		}
+
+		if (!Float.isFinite(nearest))
+		{
+			nearest = WATER_BED_RINGS;
+		}
+		nearest = Math.min(nearest, WATER_BED_RINGS);
+		int lower = Math.min((int) Math.floor(nearest), WATER_BED_RINGS - 1);
+		float fraction = nearest - lower;
+		return Math.round(WATER_BED_DEPTHS[lower]
+			+ (WATER_BED_DEPTHS[lower + 1] - WATER_BED_DEPTHS[lower])
+				* fraction);
+	}
+
+	private static boolean isWaterTile(Scene scene, int storagePlane,
+		int renderLevel, int tileX, int tileY)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		for (int pass = 0; pass < tiles.length; ++pass)
+		{
+			int candidatePlane = (storagePlane + pass) % tiles.length;
+			if (!validTileCell(tiles, candidatePlane, tileX, tileY))
+			{
+				continue;
+			}
+			for (Tile tile = tiles[candidatePlane][tileX][tileY];
+				tile != null; tile = tile.getBridge())
+			{
+				if (tile.getRenderLevel() == renderLevel && tileHasWater(tile))
 				{
 					return true;
 				}
 			}
 		}
-
 		return false;
 	}
 
+	private static int waterShoreMask(Scene scene, int storagePlane,
+		int renderLevel, int tileX, int tileY)
+	{
+		int mask = 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX - 1, tileY) ? 1 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX + 1, tileY) ? 2 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX, tileY - 1) ? 4 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX, tileY + 1) ? 8 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX - 1, tileY - 1) ? 16 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX + 1, tileY - 1) ? 32 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX + 1, tileY + 1) ? 64 : 0;
+		mask |= !isWaterTile(scene, storagePlane, renderLevel, tileX - 1, tileY + 1) ? 128 : 0;
+		return mask;
+	}
 
-	private int upload(SceneTileModel sceneTileModel, int lx, int lz, GpuIntBuffer vertexBuffer)
+	private static int internalWaterShoreMask(
+		int face,
+		int[] faceX,
+		int[] faceY,
+		int[] faceZ,
+		int[] triangleTextures,
+		int[] vertexX,
+		int[] vertexZ,
+		int tileX,
+		int tileZ)
+	{
+		int vertex0 = faceX[face];
+		int vertex1 = faceY[face];
+		int vertex2 = faceZ[face];
+		int mask = 0;
+		if (isInternalWaterBoundary(face, vertex1, vertex2,
+			faceX, faceY, faceZ, triangleTextures,
+			vertexX, vertexZ, tileX, tileZ))
+		{
+			mask |= WATER_FACE_EDGE_0;
+		}
+		if (isInternalWaterBoundary(face, vertex2, vertex0,
+			faceX, faceY, faceZ, triangleTextures,
+			vertexX, vertexZ, tileX, tileZ))
+		{
+			mask |= WATER_FACE_EDGE_1;
+		}
+		if (isInternalWaterBoundary(face, vertex0, vertex1,
+			faceX, faceY, faceZ, triangleTextures,
+			vertexX, vertexZ, tileX, tileZ))
+		{
+			mask |= WATER_FACE_EDGE_2;
+		}
+		return mask;
+	}
+
+	private static boolean isInternalWaterBoundary(
+		int face,
+		int edgeVertexA,
+		int edgeVertexB,
+		int[] faceX,
+		int[] faceY,
+		int[] faceZ,
+		int[] triangleTextures,
+		int[] vertexX,
+		int[] vertexZ,
+		int tileX,
+		int tileZ)
+	{
+		// Cardinal shoreline bits already handle edges on the tile perimeter. The
+		// barycentric bits are reserved for a water/non-water split inside a shaped
+		// tile, avoiding double-bright foam along ordinary tile boundaries.
+		if (isTilePerimeterEdge(edgeVertexA, edgeVertexB,
+			vertexX, vertexZ, tileX, tileZ))
+		{
+			return false;
+		}
+
+		for (int otherFace = 0; otherFace < faceX.length; ++otherFace)
+		{
+			if (otherFace == face || !isWaterTexture(triangleTextures[otherFace]))
+			{
+				continue;
+			}
+			boolean hasA = faceX[otherFace] == edgeVertexA
+				|| faceY[otherFace] == edgeVertexA
+				|| faceZ[otherFace] == edgeVertexA;
+			boolean hasB = faceX[otherFace] == edgeVertexB
+				|| faceY[otherFace] == edgeVertexB
+				|| faceZ[otherFace] == edgeVertexB;
+			if (hasA && hasB)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static boolean isTilePerimeterEdge(
+		int vertexA,
+		int vertexB,
+		int[] vertexX,
+		int[] vertexZ,
+		int tileX,
+		int tileZ)
+	{
+		int localAx = vertexX[vertexA] - tileX;
+		int localAz = vertexZ[vertexA] - tileZ;
+		int localBx = vertexX[vertexB] - tileX;
+		int localBz = vertexZ[vertexB] - tileZ;
+		int tileSize = Perspective.LOCAL_TILE_SIZE;
+		return localAx == 0 && localBx == 0
+			|| localAx == tileSize && localBx == tileSize
+			|| localAz == 0 && localBz == 0
+			|| localAz == tileSize && localBz == tileSize;
+	}
+
+
+	private int upload(Scene scene, Zone zone, Tile sceneTile,
+		SceneTileModel sceneTileModel, int storagePlane, int lx, int lz,
+		GpuIntBuffer vertexBuffer)
 	{
 		final int[] faceX = sceneTileModel.getFaceX();
 		final int[] faceY = sceneTileModel.getFaceY();
@@ -581,6 +2086,29 @@ class SceneUploader
 		final int[] triangleColorC = sceneTileModel.getTriangleColorC();
 
 		final int[] triangleTextures = sceneTileModel.getTriangleTextureId();
+		Point tilePoint = sceneTile.getSceneLocation();
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int sceneTileX = tilePoint.getX() + sceneOffset;
+		int sceneTileY = tilePoint.getY() + sceneOffset;
+		boolean modelHasWater = false;
+		if (triangleTextures != null)
+		{
+			for (int textureId : triangleTextures)
+			{
+				if (isWaterTexture(textureId))
+				{
+					modelHasWater = true;
+					break;
+				}
+			}
+		}
+		int outerWaterShoreMask = modelHasWater
+			? waterShoreMask(scene, storagePlane, sceneTile.getRenderLevel(),
+				sceneTileX, sceneTileY) : 0;
+		TerrainMaterial waterBedMaterial = modelHasWater
+			? findNearestTerrainMaterial(scene, storagePlane, sceneTile,
+				sceneTileX + 0.5f, sceneTileY + 0.5f) : null;
 
 		final int faceCount = faceX.length;
 
@@ -600,6 +2128,7 @@ class SceneUploader
 				continue;
 			}
 
+			int waterStart = vertexBuffer.getBuffer().position();
 			cnt += 3;
 
 			// vertexes are stored in scene local, convert to tile local
@@ -615,15 +2144,87 @@ class SceneUploader
 			int ly2 = vertexY[vertex2];
 			int lz2 = vertexZ[vertex2] - basez;
 
-			int tex = triangleTextures != null ? triangleTextures[i] + 1 : 0;
+			boolean waterFace = triangleTextures != null
+				&& isWaterTexture(triangleTextures[i]);
+			int texture = triangleTextures != null ? triangleTextures[i] : -1;
+			SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyTerrainFace(
+				sceneTileModel, i, texture, hsl0, hsl1, hsl2);
+			int tex = surfaceMaterial.packTextureCode(texture + 1);
+			int terrainFlags = TERRAIN_FLAG;
+			if (waterFace)
+			{
+				terrainFlags |= outerWaterShoreMask;
+				terrainFlags |= internalWaterShoreMask(i,
+					faceX, faceY, faceZ, triangleTextures,
+					vertexX, vertexZ, lx, lz);
+			}
 			vertexBuffer.put22224(lx0, ly0, lz0, hsl0);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex0] - lx) * 2f), (int) ((vertexZ[vertex0] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex,
+				(int) ((vertexX[vertex0] - lx) * 2f),
+				(int) ((vertexZ[vertex0] - lz) * 2f),
+				terrainFlags);
 
 			vertexBuffer.put22224(lx1, ly1, lz1, hsl1);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex1] - lx) * 2f), (int) ((vertexZ[vertex1] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex,
+				(int) ((vertexX[vertex1] - lx) * 2f),
+				(int) ((vertexZ[vertex1] - lz) * 2f),
+				terrainFlags);
 
 			vertexBuffer.put22224(lx2, ly2, lz2, hsl2);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex2] - lx) * 2f), (int) ((vertexZ[vertex2] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex,
+				(int) ((vertexX[vertex2] - lx) * 2f),
+				(int) ((vertexZ[vertex2] - lz) * 2f),
+				terrainFlags);
+
+			if (waterFace)
+			{
+				zone.addWaterRange(waterStart,
+					vertexBuffer.getBuffer().position(), rid, level);
+
+				if (waterBedMaterial != null)
+				{
+					int renderLevel = sceneTile.getRenderLevel();
+					int bedDepth0 = waterBedDepthAt(scene, storagePlane,
+						renderLevel,
+						sceneTileX + (vertexX[vertex0] - lx)
+							/ (float) Perspective.LOCAL_TILE_SIZE,
+						sceneTileY + (vertexZ[vertex0] - lz)
+							/ (float) Perspective.LOCAL_TILE_SIZE);
+					int bedDepth1 = waterBedDepthAt(scene, storagePlane,
+						renderLevel,
+						sceneTileX + (vertexX[vertex1] - lx)
+							/ (float) Perspective.LOCAL_TILE_SIZE,
+						sceneTileY + (vertexZ[vertex1] - lz)
+							/ (float) Perspective.LOCAL_TILE_SIZE);
+					int bedDepth2 = waterBedDepthAt(scene, storagePlane,
+						renderLevel,
+						sceneTileX + (vertexX[vertex2] - lx)
+							/ (float) Perspective.LOCAL_TILE_SIZE,
+						sceneTileY + (vertexZ[vertex2] - lz)
+							/ (float) Perspective.LOCAL_TILE_SIZE);
+					int bedTexture = SurfaceMaterial.SAND.packTextureCode(
+						waterBedMaterial.texture + 1);
+					int bedColor = waterBedMaterial.representativeColor;
+					int bedFlags = waterBedTerrainFlags(waterBedMaterial);
+
+					vertexBuffer.put22224(lx0, ly0 + bedDepth0, lz0,
+						markWaterBedColor(waterBedMaterial, bedColor));
+					vertexBuffer.put2222(bedTexture,
+						(int) ((vertexX[vertex0] - lx) * 2f),
+						(int) ((vertexZ[vertex0] - lz) * 2f), bedFlags);
+					vertexBuffer.put22224(lx1, ly1 + bedDepth1, lz1,
+						markWaterBedColor(waterBedMaterial, bedColor));
+					vertexBuffer.put2222(bedTexture,
+						(int) ((vertexX[vertex1] - lx) * 2f),
+						(int) ((vertexZ[vertex1] - lz) * 2f), bedFlags);
+					vertexBuffer.put22224(lx2, ly2 + bedDepth2, lz2,
+						markWaterBedColor(waterBedMaterial, bedColor));
+					vertexBuffer.put2222(bedTexture,
+						(int) ((vertexX[vertex2] - lx) * 2f),
+						(int) ((vertexZ[vertex2] - lz) * 2f), bedFlags);
+					cnt += 3;
+				}
+			}
 		}
 
 		return cnt;
@@ -730,7 +2331,9 @@ class SceneUploader
 			int alphaBias = 0;
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
-			int texture = faceTextures != null ? faceTextures[face] + 1 : 0;
+			int textureId = faceTextures != null ? faceTextures[face] : -1;
+			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+				.packTextureCode(textureId + 1);
 			GpuIntBuffer buf = alpha ? ab : vb;
 
 			buf.put22224(vx1, vy1, vz1, alphaBias | color1);

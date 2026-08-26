@@ -10,6 +10,7 @@ uniform vec3 rayColor;
 uniform float rayStrength;
 uniform float nightFactor;
 uniform vec3 moonDirection;
+uniform float celestialVisibility;
 
 void main()
 {
@@ -27,37 +28,25 @@ void main()
 	float sunCore = smoothstep(0.9985, 0.9996, sunAlignment);
 	float sunGlow = pow(max(sunAlignment, 0.0), 68.0);
 	float moonDisc = smoothstep(0.9968, 0.9987, moonAlignment);
-	float moonShade = smoothstep(-0.35, 0.65,
-		dot(normalize(direction - moonDir * 0.992), normalize(vec3(-0.5, 0.7, 0.3))));
+	float moonCore = smoothstep(0.9989, 0.99965, moonAlignment);
 	float moonGlow = pow(max(moonAlignment, 0.0), 95.0);
-	vec3 sunTangent = normalize(cross(sunDir, vec3(0.0, 1.0, 0.001)));
-	vec3 sunBitangent = normalize(cross(sunDir, sunTangent));
-	vec2 sunPlane = vec2(dot(direction, sunTangent), dot(direction, sunBitangent));
-	float sunRadius = length(sunPlane);
-	float sunAngle = atan(sunPlane.y, sunPlane.x);
-	float sunSpokes = pow(0.5 + 0.5 * cos(sunAngle * 8.0), 12.0)
-		* exp(-sunRadius * 13.0);
-	float horizontalFlare = exp(-abs(sunPlane.y) * 75.0)
-		* exp(-abs(sunPlane.x) * 5.0);
-	float sunGlare = exp(-sunRadius * 11.0) * 0.22
-		+ sunSpokes * 0.42 + horizontalFlare * 0.10;
-
-	vec3 moonTangent = normalize(cross(moonDir, vec3(0.0, 1.0, 0.001)));
-	vec3 moonBitangent = normalize(cross(moonDir, moonTangent));
-	vec2 moonPlane = vec2(dot(direction, moonTangent), dot(direction, moonBitangent));
-	float moonRadius = length(moonPlane);
-	float dustNoise = 0.82 + 0.18 * sin(
-		direction.x * 91.0 + direction.y * 57.0 + direction.z * 73.0);
-	float moonSpotlight = pow(max(moonAlignment, 0.0), 28.0) * dustNoise;
+	// Keep the sky contribution compact. Long shafts are generated later from
+	// resolved scene depth, where world geometry can actually occlude them.
+	float sunHalo = pow(max(sunAlignment, 0.0), 42.0) * 0.21
+		+ pow(max(sunAlignment, 0.0), 9.0) * 0.032;
+	float moonHalo = pow(max(moonAlignment, 0.0), 58.0) * 0.11
+		+ pow(max(moonAlignment, 0.0), 20.0) * 0.018;
 	vec3 sunBody = vec3(1.0, 0.76, 0.30) * sunDisc
 		+ vec3(1.0, 0.96, 0.78) * sunCore + rayColor * sunGlow * 0.42;
-	vec3 moonBody = vec3(0.64, 0.73, 0.90) * moonDisc * (0.48 + moonShade * 0.52)
-		+ vec3(0.42, 0.55, 0.82) * moonGlow * 0.24;
+	// A radial core avoids the unstable, faceted wedge produced by normalizing
+	// an almost-zero tangent vector at the center of the moon disc.
+	vec3 moonBody = vec3(0.58, 0.67, 0.84) * moonDisc * (0.66 + moonCore * 0.20)
+		+ vec3(0.38, 0.50, 0.76) * moonGlow * 0.18;
 	float strength = clamp(rayStrength, 0.0, 2.0);
-	skyColor += mix(sunBody, moonBody, nightFactor);
+	skyColor += mix(sunBody, moonBody, nightFactor) * celestialVisibility;
 	skyColor += mix(
-		vec3(1.0, 0.72, 0.34) * sunGlare,
-		vec3(0.38, 0.48, 0.72) * moonSpotlight * 0.46,
-		nightFactor) * strength;
+		vec3(1.0, 0.72, 0.34) * sunHalo,
+		vec3(0.38, 0.50, 0.78) * moonHalo,
+		nightFactor) * strength * celestialVisibility;
 	fragColor = vec4(skyColor, 1.0);
 }

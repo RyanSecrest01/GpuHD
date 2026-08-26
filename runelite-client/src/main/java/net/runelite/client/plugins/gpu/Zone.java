@@ -71,6 +71,25 @@ class Zone
 
 	int[] levelOffsets = new int[4]; // buffer pos in ints for the end of the level
 
+	// Procedural surface details are packed as zone-local x, y, z, seed,
+	// ground-HSL, type values. Type 0 is grass and type 1 is a stone pebble
+	// cluster. They remain CPU-only; the visible subset is streamed each frame.
+	// Offsets are cumulative float offsets, mirroring levelOffsets for the
+	// independently streamed detail instance data.
+	float[] surfaceDetailAnchors = new float[0];
+	int[] surfaceDetailLevelOffsets = new int[4];
+	int surfaceDetailVisibleFrame = -1;
+
+	// Water remains in the zone's compact terrain VBO, but these ranges let the
+	// dedicated post-opaque pass draw only water triangles without duplicating
+	// the complete scene geometry or allocating another VBO per zone.
+	private int[] waterStarts = new int[0];
+	private int[] waterEnds = new int[0];
+	private int[] waterRoofIds = new int[0];
+	private byte[] waterLevels = new byte[0];
+	private int waterRangeCount;
+	int waterVisibleFrame = -1;
+
 	int[][] rids;
 	int[][] roofStart;
 	int[][] roofEnd;
@@ -126,6 +145,15 @@ class Zone
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
 		alphaModels.clear();
+		surfaceDetailAnchors = new float[0];
+		Arrays.fill(surfaceDetailLevelOffsets, 0);
+		surfaceDetailVisibleFrame = -1;
+		waterStarts = new int[0];
+		waterEnds = new int[0];
+		waterRoofIds = new int[0];
+		waterLevels = new byte[0];
+		waterRangeCount = 0;
+		waterVisibleFrame = -1;
 	}
 
 	void unmap()
@@ -182,9 +210,14 @@ class Zone
 		{
 			m.rid = (short) (int) updates.getOrDefault((int) m.rid, (int) m.rid);
 		}
+
+		for (int i = 0; i < waterRangeCount; ++i)
+		{
+			waterRoofIds[i] = updates.getOrDefault(waterRoofIds[i], waterRoofIds[i]);
+		}
 	}
 
-	private static final int NUM_DRAW_RANGES = 512;
+	private static final int NUM_DRAW_RANGES = 4096;
 	private static final IntBuffer drawOff = BufferUtils.createIntBuffer(NUM_DRAW_RANGES);
 	private static final IntBuffer drawEnd = BufferUtils.createIntBuffer(NUM_DRAW_RANGES);
 
@@ -213,7 +246,8 @@ class Zone
 		}
 	}
 
-	void renderOpaque(int zx, int zz, int minLevel, int currentLevel, int maxLevel, Set<Integer> hiddenRoofIds)
+	void renderOpaque(int zx, int zz, int minLevel, int currentLevel, int maxLevel,
+		Set<Integer> hiddenRoofIds, boolean deferWater)
 	{
 		drawOff.clear();
 		drawEnd.clear();
@@ -229,7 +263,7 @@ class Zone
 				// draw the whole level
 				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
 				int end = this.levelOffsets[level];
-				pushRange(start, end);
+				pushSceneRange(start, end, deferWater);
 				continue;
 			}
 
@@ -242,7 +276,7 @@ class Zone
 					assert roofEnd[roofIdx] >= roofStart[roofIdx];
 					if (roofEnd[roofIdx] > roofStart[roofIdx])
 					{
-						pushRange(roofStart[roofIdx], roofEnd[roofIdx]);
+						pushSceneRange(roofStart[roofIdx], roofEnd[roofIdx], deferWater);
 					}
 				}
 			}
@@ -259,7 +293,7 @@ class Zone
 				}
 			}
 			// draw the non roofs
-			pushRange(endpos, this.levelOffsets[level]);
+			pushSceneRange(endpos, this.levelOffsets[level], deferWater);
 		}
 
 		convertForDraw(VERT_SIZE);
@@ -272,6 +306,89 @@ class Zone
 		}
 	}
 
+	void clearWaterRanges()
+	{
+		waterRangeCount = 0;
+	}
+
+	boolean hasWater()
+	{
+		return waterRangeCount > 0;
+	}
+
+	void addWaterRange(int start, int end, int roofId, int level)
+	{
+		if (end <= start)
+		{
+			return;
+		}
+
+		if (waterRangeCount > 0)
+		{
+			int previous = waterRangeCount - 1;
+			if (waterEnds[previous] == start
+				&& waterRoofIds[previous] == roofId
+				&& waterLevels[previous] == level)
+			{
+				waterEnds[previous] = end;
+				return;
+			}
+		}
+
+		if (waterRangeCount == waterStarts.length)
+		{
+			int capacity = Math.max(16, waterRangeCount * 2);
+			waterStarts = Arrays.copyOf(waterStarts, capacity);
+			waterEnds = Arrays.copyOf(waterEnds, capacity);
+			waterRoofIds = Arrays.copyOf(waterRoofIds, capacity);
+			waterLevels = Arrays.copyOf(waterLevels, capacity);
+		}
+
+		waterStarts[waterRangeCount] = start;
+		waterEnds[waterRangeCount] = end;
+		waterRoofIds[waterRangeCount] = roofId;
+		waterLevels[waterRangeCount] = (byte) level;
+		++waterRangeCount;
+	}
+
+	void renderWater(
+		int zx,
+		int zz,
+		int minLevel,
+		int currentLevel,
+		int maxLevel,
+		Set<Integer> hiddenRoofIds,
+		int waterBaseUniform)
+	{
+		drawOff.clear();
+		drawEnd.clear();
+
+		for (int index = 0; index < waterRangeCount; ++index)
+		{
+			int level = waterLevels[index];
+			if (level < minLevel || level > maxLevel)
+			{
+				continue;
+			}
+
+			int roofId = waterRoofIds[index];
+			if (level > currentLevel && roofId > 0 && hiddenRoofIds.contains(roofId))
+			{
+				continue;
+			}
+
+			pushRange(waterStarts[index], waterEnds[index]);
+		}
+
+		convertForDraw(VERT_SIZE);
+		if (drawOff.limit() > 0)
+		{
+			glUniform3i(waterBaseUniform, zx << 10, 0, zz << 10);
+			glBindVertexArray(glVao);
+			glMultiDrawArrays(GL_TRIANGLES, drawOff, drawEnd);
+		}
+	}
+
 	void renderShadow(
 			int zx,
 			int zz,
@@ -279,7 +396,23 @@ class Zone
 			int currentLevel,
 			int maxLevel,
 			Set<Integer> hiddenRoofIds,
-			int shadowBaseUniform)
+			int shadowBaseUniform,
+			boolean deferWater)
+	{
+		renderSurfaceShadow(
+			zx, zz, minLevel, currentLevel, maxLevel,
+			hiddenRoofIds, shadowBaseUniform, deferWater);
+	}
+
+	void renderSurfaceShadow(
+			int zx,
+			int zz,
+			int minLevel,
+			int currentLevel,
+			int maxLevel,
+			Set<Integer> hiddenRoofIds,
+			int shadowBaseUniform,
+			boolean deferWater)
 	{
 		drawOff.clear();
 		drawEnd.clear();
@@ -294,7 +427,7 @@ class Zone
 			{
 				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
 				int end = this.levelOffsets[level];
-				pushRange(start, end);
+				pushSceneRange(start, end, deferWater);
 				continue;
 			}
 
@@ -306,9 +439,10 @@ class Zone
 				{
 					if (roofEnd[roofIdx] > roofStart[roofIdx])
 					{
-						pushRange(
+						pushSceneRange(
 								roofStart[roofIdx],
-								roofEnd[roofIdx]
+								roofEnd[roofIdx],
+								deferWater
 						);
 					}
 				}
@@ -328,9 +462,10 @@ class Zone
 				}
 			}
 
-			pushRange(
+			pushSceneRange(
 					endpos,
-					this.levelOffsets[level]
+					this.levelOffsets[level],
+					deferWater
 			);
 		}
 
@@ -352,6 +487,59 @@ class Zone
 					drawOff,
 					drawEnd
 			);
+		}
+	}
+
+	void renderAtmosphereShadow(
+			int zx,
+			int zz,
+			int minLevel,
+			int currentLevel,
+			int maxLevel,
+			Set<Integer> hiddenRoofIds,
+			int shadowBaseUniform,
+			boolean deferWater)
+	{
+		// Atmospheric blockers must agree with the roof state visible in the
+		// opaque scene. Keeping this entry point separate lets the lower-resolution
+		// atmosphere map evolve independently without maintaining a second,
+		// contradictory roof-range selector.
+		renderSurfaceShadow(
+			zx, zz, minLevel, currentLevel, maxLevel,
+			hiddenRoofIds, shadowBaseUniform, deferWater);
+	}
+
+	private void pushSceneRange(int start, int end, boolean excludeWater)
+	{
+		if (!excludeWater || waterRangeCount == 0)
+		{
+			pushRange(start, end);
+			return;
+		}
+
+		int cursor = start;
+		for (int index = 0; index < waterRangeCount && cursor < end; ++index)
+		{
+			int waterStart = waterStarts[index];
+			int waterEnd = waterEnds[index];
+			if (waterEnd <= cursor)
+			{
+				continue;
+			}
+			if (waterStart >= end)
+			{
+				break;
+			}
+			if (waterStart > cursor)
+			{
+				pushRange(cursor, Math.min(waterStart, end));
+			}
+			cursor = Math.max(cursor, waterEnd);
+		}
+
+		if (cursor < end)
+		{
+			pushRange(cursor, end);
 		}
 	}
 

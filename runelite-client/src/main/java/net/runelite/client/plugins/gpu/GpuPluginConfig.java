@@ -363,76 +363,35 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
-			keyName = "dynamicLighting",
-			name = "Dynamic lighting",
-			description = "Adds lightweight directional lighting to the world.",
-			position = 18
+			keyName = "dynamicShadows",
+			name = "Cast shadows",
+			description = "Adds selective cast shadows aligned with the visible sun or moon without relighting the whole world.",
+			position = 21
 	)
-	default boolean dynamicLighting()
+	default boolean dynamicShadows()
 	{
 		return true;
 	}
 
 	@Range(
 			min = 0,
-			max = 200
-	)
-	@ConfigItem(
-			keyName = "lightIntensity",
-			name = "Light intensity",
-			description = "Strength of directional lighting.",
-			position = 19
-	)
-	default int lightIntensity()
-	{
-		return 55;
-	}
-
-	@Range(
-			min = 0,
-			max = 150
-	)
-	@ConfigItem(
-			keyName = "ambientLight",
-			name = "Ambient light",
-			description = "Base brightness applied to all surfaces.",
-			position = 20
-	)
-	default int ambientLight()
-	{
-		return 80;
-	}
-
-	@ConfigItem(
-			keyName = "dynamicShadows",
-			name = "Dynamic shadows",
-			description = "Experimental soft directional shadows. Requires dynamic lighting.",
-			position = 21
-	)
-	default boolean dynamicShadows()
-	{
-		return false;
-	}
-
-	@Range(
-			min = 0,
-			max = 60
+			max = 80
 	)
 	@ConfigItem(
 			keyName = "shadowStrength",
 			name = "Shadow strength",
-			description = "Controls how much direct sunlight is removed inside shadows.",
+			description = "Controls the contrast of selective sun and moon cast shadows.",
 			position = 22
 	)
 	default int shadowStrength()
 	{
-		return 35;
+		return 40;
 	}
 
 	@ConfigItem(
 			keyName = "godRays",
-			name = "Celestial rays",
-			description = "Adds sun glare by day and a soft dusty moonlight cone at night.",
+			name = "Sun rays",
+			description = "Adds selective depth-occluded sunlight shafts through the playable scene.",
 			position = 23
 	)
 	default boolean godRays()
@@ -446,8 +405,8 @@ public interface GpuPluginConfig extends Config
 	)
 	@ConfigItem(
 			keyName = "godRaysStrength",
-			name = "Celestial ray strength",
-			description = "Controls sun glare and moonlight atmosphere intensity.",
+			name = "Sun ray strength",
+			description = "Controls selective sunlight shaft intensity.",
 			position = 24
 	)
 	default int godRaysStrength()
@@ -456,10 +415,51 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "moonRays",
+		name = "Moon rays",
+		description = "Adds a separate, softer moonlight shaft profile at night.",
+		position = 25
+	)
+	default boolean moonRays()
+	{
+		return false;
+	}
+
+	@Range(
+		min = 0,
+		max = 200
+	)
+	@ConfigItem(
+		keyName = "moonRaysStrength",
+		name = "Moon ray strength",
+		description = "Controls nighttime moonlight shaft intensity independently from sunlight.",
+		position = 26
+	)
+	default int moonRaysStrength()
+	{
+		return 45;
+	}
+
+	@Range(
+		min = 0,
+		max = 200
+	)
+	@ConfigItem(
+		keyName = "celestialGlareStrength",
+		name = "Celestial glare",
+		description = "Controls the compact glow around the visible sun or moon independently from light shafts.",
+		position = 27
+	)
+	default int celestialGlareStrength()
+	{
+		return 180;
+	}
+
+	@ConfigItem(
 			keyName = "shadowDebug",
 			name = "Show shadow map",
 			description = "Displays the shadow depth texture for projection diagnostics.",
-			position = 25
+			position = 28
 	)
 	default boolean shadowDebug()
 	{
@@ -469,8 +469,8 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 			keyName = "enhancedWater",
 			name = "Enhanced water",
-			description = "Adds layered motion, environment tint, Fresnel highlights, and sunlight sparkle to water.",
-			position = 26
+			description = "Renders water after the opaque world with transparency, depth absorption, refraction, waves, and sky reflection.",
+			position = 29
 	)
 	default boolean enhancedWater()
 	{
@@ -485,7 +485,7 @@ public interface GpuPluginConfig extends Config
 			keyName = "waterStrength",
 			name = "Water strength",
 			description = "Controls the strength of enhanced water shading.",
-			position = 27
+			position = 30
 	)
 	default int waterStrength()
 	{
@@ -493,76 +493,231 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@Range(
-			min = 40,
+		min = 10,
 			max = 100
 	)
 	@ConfigItem(
 			keyName = "waterOpacity",
 			name = "Water opacity",
 			description = "Controls water transparency where underlying scene geometry is available.",
-			position = 28
+			position = 31
 	)
 	default int waterOpacity()
 	{
-		return 82;
+		return 58;
 	}
 
-	@ConfigItem(keyName = "weatherMode", name = "Weather", description = "Selects world-space precipitation and its matching environment.", position = 29)
+	@ConfigItem(keyName = "weatherMode", name = "Weather", description = "Selects world-space precipitation and its matching environment.", position = 32)
 	default WeatherMode weatherMode()
 	{
 		return WeatherMode.CLEAR;
 	}
 
 	@Range(min = 10, max = 100)
-	@ConfigItem(keyName = "weatherDensity", name = "Weather density", description = "Controls precipitation density. Storm modes intentionally exceed normal plugin density.", position = 30)
+	@ConfigItem(keyName = "weatherDensity", name = "Weather density", description = "Controls precipitation density. Storm modes intentionally exceed normal plugin density.", position = 33)
 	default int weatherDensity()
 	{
 		return 80;
 	}
 
 	@Range(min = -100, max = 100)
-	@ConfigItem(keyName = "weatherWind", name = "Weather wind", description = "Controls horizontal precipitation drift.", position = 31)
+	@ConfigItem(keyName = "weatherWind", name = "Weather wind", description = "Controls horizontal precipitation drift.", position = 34)
 	default int weatherWind()
 	{
 		return 25;
 	}
 
-	@ConfigItem(keyName = "weatherSounds", name = "Weather sounds", description = "Plays looping rain and synchronized thunder for weather modes.", position = 32)
+	@Range(min = 0, max = 200)
+	@ConfigItem(keyName = "stormAtmosphereDensity", name = "Storm atmosphere", description = "Controls rolling world-space fog volume density during storms and blizzards. Set to 0 to disable it.", position = 35)
+	default int stormAtmosphereDensity()
+	{
+		return 130;
+	}
+
+	@ConfigItem(keyName = "weatherSounds", name = "Weather sounds", description = "Plays looping rain and synchronized thunder for weather modes.", position = 36)
 	default boolean weatherSounds()
 	{
 		return true;
 	}
 
 	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "weatherVolume", name = "Weather volume", description = "Controls rain and thunder volume.", position = 33)
+	@ConfigItem(keyName = "weatherVolume", name = "Weather volume", description = "Controls rain and thunder volume.", position = 37)
 	default int weatherVolume()
 	{
 		return 55;
 	}
 
-	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects morning, overhead noon, or opposite evening sunlight. The day/night cycle overrides this.", position = 34)
+	@ConfigItem(keyName = "sunPosition", name = "Sun position", description = "Selects morning, overhead noon, or opposite evening sunlight. The day/night cycle overrides this.", position = 38)
 	default SunPosition sunPosition()
 	{
 		return SunPosition.MORNING;
 	}
 
-	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightDirectLight", name = "Night direct light", description = "Moonlight strength during night and cosmic stages.", position = 35)
-	default int nightDirectLight()
-	{
-		return 28;
-	}
-
-	@Range(min = 0, max = 100)
-	@ConfigItem(keyName = "nightAmbientLight", name = "Night ambient light", description = "Ambient world brightness during night and cosmic stages.", position = 36)
-	default int nightAmbientLight()
-	{
-		return 42;
-	}
-
-	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects the nighttime moon and moonlight direction.", position = 37)
+	@ConfigItem(keyName = "moonPosition", name = "Moon position", description = "Selects the nighttime moon and moonlight direction.", position = 41)
 	default MoonPosition moonPosition()
 	{
 		return MoonPosition.SOUTHEAST;
+	}
+
+	@ConfigItem(
+		keyName = "flowingGrass",
+		name = "Flowing grass",
+		description = "Adds experimental world-space grass clumps with environment-driven wind.",
+		position = 42
+	)
+	default boolean flowingGrass()
+	{
+		return true;
+	}
+
+	@Range(min = 10, max = 100)
+	@ConfigItem(
+		keyName = "grassDensity",
+		name = "Grass density",
+		description = "Controls how many eligible terrain grass clumps are rendered.",
+		position = 43
+	)
+	default int grassDensity()
+	{
+		return 62;
+	}
+
+	@Range(min = 0, max = 200)
+	@ConfigItem(
+		keyName = "grassWindStrength",
+		name = "Grass wind",
+		description = "Controls grass sway and weather gust response.",
+		position = 44
+	)
+	default int grassWindStrength()
+	{
+		return 100;
+	}
+
+	@Range(min = 6, max = 18)
+	@ConfigItem(
+		keyName = "grassDistance",
+		name = "Grass distance",
+		description = "Maximum grass render distance around the player, in tiles.",
+		position = 45
+	)
+	default int grassDistance()
+	{
+		return 12;
+	}
+
+	@ConfigItem(
+		keyName = "terrainTextureBlending",
+		name = "Terrain texture blending",
+		description = "Experimentally feathers compatible ground textures and colors across tile borders.",
+		position = 46
+	)
+	default boolean terrainTextureBlending()
+	{
+		return true;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "terrainBlendStrength",
+		name = "Terrain blend strength",
+		description = "Controls how strongly compatible terrain is blended across tile borders.",
+		position = 47
+	)
+	default int terrainBlendStrength()
+	{
+		return 60;
+	}
+
+	@ConfigItem(
+		keyName = "terrainDetail",
+		name = "3D ground details",
+		description = "Adds real, light-reactive pebble and rock geometry to eligible stone terrain.",
+		position = 48
+	)
+	default boolean terrainDetail()
+	{
+		return true;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "terrainDetailStrength",
+		name = "Rock detail density",
+		description = "Controls how many eligible pebble and rock clusters are rendered.",
+		position = 49
+	)
+	default int terrainDetailStrength()
+	{
+		return 65;
+	}
+
+	@Range(min = 6, max = 18)
+	@ConfigItem(
+		keyName = "terrainDetailDistance",
+		name = "Rock detail distance",
+		description = "Maximum pebble and rock render distance around the player, in tiles.",
+		position = 50
+	)
+	default int terrainDetailDistance()
+	{
+		return 12;
+	}
+
+	@ConfigItem(
+		keyName = "materialDebugMode",
+		name = "Material debug",
+		description = "Visualizes explicit material tags or grass/stone material candidates for 3D details.",
+		position = 51
+	)
+	default MaterialDebugMode materialDebugMode()
+	{
+		return MaterialDebugMode.OFF;
+	}
+
+	@ConfigItem(
+		keyName = "materialLighting",
+		name = "Material lighting",
+		description = "Lets tagged grass, stone, sand, wood, metal, foliage, and dirt respond naturally to the active sun or moon.",
+		position = 52
+	)
+	default boolean materialLighting()
+	{
+		return true;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "materialLightingStrength",
+		name = "Material response",
+		description = "Controls the strength of material-specific highlights and surface response without relighting untagged geometry.",
+		position = 53
+	)
+	default int materialLightingStrength()
+	{
+		return 70;
+	}
+
+	@ConfigItem(
+		keyName = "wetSurfaces",
+		name = "Wet surfaces",
+		description = "Lets rain and storms darken and add restrained reflections to eligible ground materials.",
+		position = 54
+	)
+	default boolean wetSurfaces()
+	{
+		return true;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "wetSurfaceStrength",
+		name = "Wet surface strength",
+		description = "Controls the rain-driven darkening and reflected-light response of wet surfaces.",
+		position = 55
+	)
+	default int wetSurfaceStrength()
+	{
+		return 60;
 	}
 }

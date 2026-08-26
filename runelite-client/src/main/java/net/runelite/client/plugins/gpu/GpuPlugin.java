@@ -24,6 +24,7 @@
  */
 package net.runelite.client.plugins.gpu;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.primitives.Ints;
 import com.google.inject.Provides;
@@ -83,6 +84,8 @@ import static org.lwjgl.opengl.GL43C.GL_DEBUG_SOURCE_API;
 import static org.lwjgl.opengl.GL43C.GL_DEBUG_TYPE_OTHER;
 import static org.lwjgl.opengl.GL43C.GL_DEBUG_TYPE_PERFORMANCE;
 import static org.lwjgl.opengl.GL43C.glDebugMessageControl;
+import static org.lwjgl.opengl.GL45C.GL_CLIP_DEPTH_MODE;
+import static org.lwjgl.opengl.GL45C.GL_CLIP_ORIGIN;
 import static org.lwjgl.opengl.GL45C.GL_NEGATIVE_ONE_TO_ONE;
 import static org.lwjgl.opengl.GL45C.GL_ZERO_TO_ONE;
 import static org.lwjgl.opengl.GL45C.glClipControl;
@@ -110,6 +113,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private static final int UNIFORM_BUFFER_SIZE = 5 * Float.BYTES;
 	private static final int NUM_ZONES = Constants.EXTENDED_SCENE_SIZE >> 3;
 	private static final int MAX_WORLDVIEWS = 4096;
+	private static final int SURFACE_DETAIL_INSTANCE_FLOATS = 6;
+	private static final int SURFACE_DETAIL_VERTICES_PER_INSTANCE = 60;
+	private static final int MAX_SURFACE_DETAIL_INSTANCES = 32768;
+	private static final float CELESTIAL_PEAK_ELEVATION = (float) Math.toRadians(78.0);
 
 	@Inject
 	private Client client;
@@ -164,27 +171,98 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	static final Shader SHADOW_DEBUG_PROGRAM = new Shader()
 			.add(GL_VERTEX_SHADER, "shadow_debug_vert.glsl")
 			.add(GL_FRAGMENT_SHADER, "shadow_debug_frag.glsl");
+	static final Shader ATMOSPHERE_SHADOW_FILTER_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "atmosphere_shadow_filter_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "atmosphere_shadow_filter_frag.glsl");
 	static final Shader WEATHER_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "weather_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "weather_frag.glsl");
+	static final Shader ATMOSPHERE_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "atmosphere_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "atmosphere_frag.glsl");
+	static final Shader VOLUMETRIC_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "volumetric_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "volumetric_frag.glsl");
+	static final Shader VOLUMETRIC_COMPOSITE_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "volumetric_composite_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "volumetric_composite_frag.glsl");
+	static final Shader GRASS_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "grass_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "grass_frag.glsl");
+	static final Shader WATER_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "water_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "water_frag.glsl");
 
 	static int glProgram;
 	private int glUiProgram;
 
 	private int glShadowProgram;
 	private int glShadowDebugProgram;
+	private int glAtmosphereShadowFilterProgram;
 
 	private int glSkyProgram;
 	private int glWeatherProgram;
+	private int glAtmosphereProgram;
+	private int glVolumetricProgram;
+	private int glVolumetricCompositeProgram;
+	private int glGrassProgram;
+	private int glWaterProgram;
 	private int uniWeatherProjection, uniWeatherCamera, uniWeatherTime;
 	private int uniWeatherRadius, uniWeatherFallSpeed, uniWeatherWind, uniWeatherStreakLength;
-	private int uniWeatherSnow, uniWeatherStorm, uniWeatherIntensity;
+	private int uniWeatherSnow, uniWeatherStorm, uniWeatherSevere, uniWeatherIntensity;
+	private int uniAtmosphereProjection, uniAtmosphereCamera, uniAtmosphereAnchor;
+	private int uniAtmosphereTime, uniAtmosphereRadius, uniAtmosphereWind;
+	private int uniAtmosphereDensity, uniAtmosphereBlizzard, uniAtmosphereLightning;
+	private int uniAtmosphereLightDirection, uniAtmosphereNightFactor;
+	private int uniVolumetricSceneColor, uniVolumetricSceneDepth, uniVolumetricUvTransform;
+	private int uniVolumetricCelestialRayStrength, uniVolumetricMoonProfile;
+	private int uniVolumetricWeatherMode, uniVolumetricWorldProjection;
+	private int uniVolumetricCamera, uniVolumetricLightDirection;
+	private int uniVolumetricRayColor;
+	private int uniVolumetricShadowLightProj, uniVolumetricShadowMap;
+	private int uniVolumetricShadowMapValid, uniVolumetricZeroToOneDepth;
+	private int uniAtmosphereShadowFilterSourceDepth;
+	private int uniVolumetricCompositeSceneColor, uniVolumetricCompositeSceneDepth;
+	private int uniVolumetricCompositeRays, uniVolumetricCompositeSceneUvTransform;
+	private int uniVolumetricCompositeRayUvTransform, uniVolumetricCompositeRayTexelSize;
+	private int uniGrassProjection, uniGrassCamera, uniGrassFocus;
+	private int uniGrassTime, uniGrassDrawRadius, uniGrassHeightScale, uniGrassWindStrength;
+	private int uniGrassWeatherModeVert, uniGrassLightDirection;
+	private int uniGrassLightIntensity, uniGrassAmbientLight;
+	private int uniGrassLightningFlash, uniGrassWeatherModeFrag, uniGrassNightFactor;
+	private int uniGrassBrightness, uniGrassEnhancedColors;
+	private int uniGrassSaturation, uniGrassContrast, uniGrassFogColor;
+	private int uniGrassShadowMap, uniGrassShadowLightProj;
+	private int uniGrassShadowsEnabled, uniGrassShadowStrength;
+	private int uniGrassMaterialDebugMode;
+	private int uniGrassWetSurfacesEnabled, uniGrassWetSurfaceStrength;
+	private int uniWaterProjection, uniWaterBase;
+	private int uniWaterSceneColor, uniWaterSceneDepth, uniWaterSkyTexture;
+	private int uniWaterShadowMap, uniWaterWorldProjection, uniWaterShadowLightProj;
+	private int uniWaterUvTransform, uniWaterTargetSize, uniWaterCamera;
+	private int uniWaterLightDirection, uniWaterFogColor, uniWaterTime;
+	private int uniWaterPassStrength, uniWaterPassOpacity, uniWaterDrawDistance;
+	private int uniWaterNightFactor, uniWaterLightningFlash, uniWaterWeatherDensity;
+	private int uniWaterWeatherMode, uniWaterShadowMapValid;
+	private int uniWaterZeroToOneDepth, uniWaterSkyReflectionEnabled;
+	private int uniWaterMaterialDebugMode;
 	private final float[] weatherProjection = Mat4.identity();
 	private float weatherCameraX, weatherCameraY, weatherCameraZ;
+	private float atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ;
 	private final WeatherAudioController weatherAudio = new WeatherAudioController();
 	private long lastThunderCycle = Long.MIN_VALUE;
+	private long grassTimeOriginMillis = -1L;
 	private int vaoSkyHandle;
 	private int vboSkyHandle;
+	private int vaoGrassHandle;
+	private int vboGrassInstanceHandle;
+	private final FloatBuffer grassInstanceBuffer =
+		GpuFloatBuffer.allocateDirect(
+			MAX_SURFACE_DETAIL_INSTANCES * SURFACE_DETAIL_INSTANCE_FLOATS);
+	private int grassVisibilityFrame = 1;
+	private int activeSkyTexture;
+	private float currentFogR, currentFogG, currentFogB;
+	private int currentDrawDistance;
 	private int uniSkyProj;
 	private int uniSkyTexture;
 	private int uniSkySunDirection;
@@ -192,6 +270,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniSkyRayStrength;
 	private int uniSkyNightFactor;
 	private int uniSkyMoonDirection;
+	private int uniSkyCelestialVisibility;
 
 	private int uniEnhancedColors;
 	private int uniSaturation;
@@ -201,18 +280,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniShadowBase;
 	private int uniShadowDebugMap;
 
-	private int uniDynamicLighting;
-	private int uniLightIntensity;
-	private int uniAmbientLight;
 	private int uniLightDirection;
 	private int uniCameraPosition;
+	private int uniCelestialNightFactorMain;
 	private int uniEnhancedWater;
 	private int uniWaterStrength;
 	private int uniWaterOpacity;
 	private int uniLightningFlash;
 	private int uniWeatherModeMain;
-	private int uniCelestialRayStrength;
-	private int uniCelestialNightFactor;
+	private int uniWeatherTimeMain;
+	private int uniWeatherDensityMain;
 
 	private int interfaceTexture;
 	private int interfacePbo;
@@ -222,7 +299,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int daySkyTexture;
 	private int sunsetSkyTexture;
 	private final int[] rainSkyTextures = new int[3];
-	private final int[] snowSkyTextures = new int[5];
+	private int snowSkyTexture;
 	private final int[] lightningSkyTextures = new int[4];
 
 	private int vaoUiHandle;
@@ -232,18 +309,50 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private boolean sceneFboValid;
 	private int rboColorBuffer;
 	private int rboDepthBuffer;
+	private int fboSceneResolved = -1;
+	private int sceneColorTexture;
+	private int sceneDepthTexture;
+	private int fboVolumetric = -1;
+	private int volumetricTexture;
+	private int volumetricTargetWidth;
+	private int volumetricTargetHeight;
+	private int sceneTargetWidth;
+	private int sceneTargetHeight;
+	private final int[] sceneViewport = new int[4];
 
 	// =====================================================
 	// Shadow map
 	// =====================================================
 
 	private static final int SHADOW_MAP_SIZE = 4096;
+	private static final int ATMOSPHERE_SHADOW_MAP_SIZE = 1024;
+	private static final int ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE = 512;
 	private static final float[] MORNING_SUN = {0.65f, 0.55f, -0.52f};
 	private static final float[] NOON_SUN = {0.035f, 1.0f, -0.025f};
 	private static final float[] EVENING_SUN = {-0.65f, 0.48f, 0.52f};
 
+	private static final class FrameEnvironment
+	{
+		private boolean initialized;
+		private long timeMillis;
+		private SkyMode skyMode = SkyMode.OFF;
+		private float nightFactor;
+		private final float[] sunDirection = new float[3];
+		private final float[] moonDirection = new float[3];
+		private final float[] activeLightDirection = new float[3];
+		private final float[] activeSceneDirection = new float[3];
+	}
+
+	private final FrameEnvironment frameEnvironment = new FrameEnvironment();
+
 	private int shadowFbo;
 	private int shadowDepthTexture;
+	private int atmosphereShadowFbo;
+	private int atmosphereShadowDepthTexture;
+	private int atmosphereFilteredShadowFbo;
+	private int atmosphereFilteredShadowDepthTexture;
+	private boolean surfaceShadowMapValid;
+	private boolean atmosphereShadowMapValid;
 
 	private int textureArrayId;
 
@@ -338,7 +447,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniShadowLightProjMain;
 	private int uniShadowsEnabled;
 	private int uniShadowStrength;
-	private float[] currentShadowLightProj = new float[16];
+	private final float[] currentShadowLightProj = new float[16];
+	private final float[] currentAtmosphereLightProj = new float[16];
 
 	private int uniUseFog;
 	private int uniFogColor;
@@ -358,6 +468,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniTextureAnimations;
 	private int uniBlockMain;
 	private int uniTextureLightMode;
+	private int uniTerrainTextureBlending;
+	private int uniTerrainBlendStrength;
+	private int uniMaterialDebugMode;
+	private int uniMaterialLightingEnabled;
+	private int uniMaterialLightingStrength;
+	private int uniWetSurfacesEnabled;
+	private int uniWetSurfaceStrength;
 	private int uniTick;
 	private int uniColorblindIntensity;
 	private int uniUiColorblindIntensity;
@@ -377,8 +494,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			var rt = rts[i] = new RenderThread();
 			rt.modelUploader = new ModelUploader();
 		}
-		clientUploader = new SceneUploader(renderCallbackManager);
-		mapUploader = new SceneUploader(renderCallbackManager);
+		clientUploader = new SceneUploader(renderCallbackManager, config);
+		mapUploader = new SceneUploader(renderCallbackManager, config);
 		clientThread.invoke(() ->
 		{
 			try
@@ -452,6 +569,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initBuffers();
 				initVao();
 				initSkyVao();
+				initGrassVao();
 				initProgram();
 				initInterfaceTexture();
 				initSkyTextures();
@@ -569,6 +687,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				root.free();
 
 				shutdownSkyTextures();
+				shutdownGrassVao();
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
 				shutdownProgram();
@@ -630,6 +749,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			{
 				log.debug("Toggle {}", configChanged.getKey());
 				setupGpuFlags();
+			}
+			else if (configChanged.getKey().equals("terrainTextureBlending")
+				|| configChanged.getKey().equals("terrainBlendStrength"))
+			{
+				// Shared terrain-corner colors are baked into zone VBOs. Force a
+				// normal scene rebuild so the CPU and shader portions stay in sync.
+				clientThread.invokeLater(() ->
+				{
+					if (client.getGameState() == GameState.LOGGED_IN)
+					{
+						client.setGameState(GameState.LOADING);
+					}
+				});
 			}
 			else if (configChanged.getKey().equals("uiScalingMode") || configChanged.getKey().equals("colorBlindMode"))
 			{
@@ -743,7 +875,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glShadowDebugProgram =
 				SHADOW_DEBUG_PROGRAM.compile(template);
+		glAtmosphereShadowFilterProgram =
+			ATMOSPHERE_SHADOW_FILTER_PROGRAM.compile(template);
 		glWeatherProgram = WEATHER_PROGRAM.compile(template);
+		glAtmosphereProgram = ATMOSPHERE_PROGRAM.compile(template);
+		glVolumetricProgram = VOLUMETRIC_PROGRAM.compile(template);
+		glVolumetricCompositeProgram = VOLUMETRIC_COMPOSITE_PROGRAM.compile(template);
+		glGrassProgram = GRASS_PROGRAM.compile(template);
+		glWaterProgram = WATER_PROGRAM.compile(template);
 
 		glBindVertexArray(0);
 
@@ -776,10 +915,29 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		return m;
 	}
 
-	private static float[] makeLightViewRotation(float lightX, float lightY, float lightZ)
+	@VisibleForTesting
+	static int halfResolutionViewportOrigin(int coordinate)
+	{
+		return Math.floorDiv(coordinate, 2);
+	}
+
+	@VisibleForTesting
+	static int halfResolutionViewportExtent(int coordinate, int extent)
+	{
+		int halfOrigin = halfResolutionViewportOrigin(coordinate);
+		int halfEnd = Math.floorDiv(coordinate + extent + 1, 2);
+		return Math.max(1, halfEnd - halfOrigin);
+	}
+
+	@VisibleForTesting
+	static float[] makeLightViewRotation(float lightX, float lightY, float lightZ)
 	{
 		float lightLength = (float) Math.sqrt(
 				lightX * lightX + lightY * lightY + lightZ * lightZ);
+		if (lightLength < 1e-6f)
+		{
+			return Mat4.identity();
+		}
 		float forwardX = -lightX / lightLength;
 		float forwardY = -lightY / lightLength;
 		float forwardZ = -lightZ / lightLength;
@@ -789,11 +947,21 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		float rightY = 0.0f;
 		float rightZ = forwardX;
 		float rightLength = (float) Math.sqrt(rightX * rightX + rightZ * rightZ);
-		rightX /= rightLength;
-		rightZ /= rightLength;
+		if (rightLength < 1e-4f)
+		{
+			rightX = 1.0f;
+			rightZ = 0.0f;
+		}
+		else
+		{
+			rightX /= rightLength;
+			rightZ /= rightLength;
+		}
 
 		float upX = -rightZ * forwardY;
-		float upY = forwardZ * rightX - forwardX * rightZ;
+		// up = right x forward. The old reversed Y term sheared light space,
+		// which made surface illumination disagree with otherwise-correct shadows.
+		float upY = rightZ * forwardX - rightX * forwardZ;
 		float upZ = rightX * forwardY;
 
 		return new float[]
@@ -805,18 +973,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		};
 	}
 
-	private void renderShadowMap(
-			Scene scene,
-			float cameraX,
-			float cameraY,
-			float cameraZ)
+	private boolean renderLightDepthMap(
+		Scene scene,
+		float cameraX,
+		float cameraY,
+		float cameraZ,
+		int framebuffer,
+		int mapSize,
+		float[] lightProjectionTarget,
+		boolean atmosphereCasters)
 	{
-		float[] sun = getActiveLightDirection();
+		float[] sceneLight = getActiveSceneLightDirection();
 		SceneContext ctx = context(scene);
 
 		if (ctx == null)
 		{
-			return;
+			return false;
 		}
 
 		// =====================================================
@@ -829,6 +1001,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				GL_VIEWPORT,
 				previousViewport
 		);
+		int previousDrawFramebuffer = glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
+		int previousReadFramebuffer = glGetInteger(GL_READ_FRAMEBUFFER_BINDING);
+		int previousProgram = glGetInteger(GL_CURRENT_PROGRAM);
+		int previousVao = glGetInteger(GL_VERTEX_ARRAY_BINDING);
+		int previousDepthFunc = glGetInteger(GL_DEPTH_FUNC);
+		boolean previousDepthTest = glIsEnabled(GL_DEPTH_TEST);
+		boolean previousDepthMask = glGetBoolean(GL_DEPTH_WRITEMASK);
+		boolean previousCullFace = atmosphereCasters && glIsEnabled(GL_CULL_FACE);
+		double previousClearDepth = glGetDouble(GL_DEPTH_CLEAR_VALUE);
+		int previousClipOrigin = glCapabilities.OpenGL45
+			? glGetInteger(GL_CLIP_ORIGIN) : GL_LOWER_LEFT;
+		int previousClipDepthMode = glCapabilities.OpenGL45
+			? glGetInteger(GL_CLIP_DEPTH_MODE) : GL_NEGATIVE_ONE_TO_ONE;
 
 		// =====================================================
 		// Bind shadow framebuffer
@@ -836,7 +1021,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glBindFramebuffer(
 				GL_FRAMEBUFFER,
-				shadowFbo
+				framebuffer
 		);
 
 		// The shadow matrices use conventional OpenGL [-1, 1] clip depth.
@@ -849,8 +1034,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glViewport(
 				0,
 				0,
-				SHADOW_MAP_SIZE,
-				SHADOW_MAP_SIZE
+				mapSize,
+				mapSize
 		);
 
 		/*
@@ -862,6 +1047,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glDepthMask(true);
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LESS);
+		if (atmosphereCasters)
+		{
+			// Macro blockers need both sides of thin roofs and walls. Restrict the
+			// culling change to this pass; the surface-shadow pass stays untouched.
+			glDisable(GL_CULL_FACE);
+		}
 
 		glClearDepth(1.0);
 		glClear(GL_DEPTH_BUFFER_BIT);
@@ -881,10 +1072,45 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		 */
 		float shadowRadius =
 				58.0f * Perspective.LOCAL_TILE_SIZE;
-		float shadowTexelSize = 2.0f * shadowRadius / SHADOW_MAP_SIZE;
-		float shadowCenterX = Math.round(cameraX / shadowTexelSize) * shadowTexelSize;
-		float shadowCenterY = Math.round(cameraY / shadowTexelSize) * shadowTexelSize;
-		float shadowCenterZ = Math.round(cameraZ / shadowTexelSize) * shadowTexelSize;
+		float shadowTexelSize = 2.0f * shadowRadius / mapSize;
+		float[] lightViewRotation =
+			makeLightViewRotation(sceneLight[0], sceneLight[1], sceneLight[2]);
+		float shadowCenterX;
+		float shadowCenterY;
+		float shadowCenterZ;
+		if (atmosphereCasters)
+		{
+			// The atmosphere pass receives the camera focal point, which is stable
+			// while the camera orbits. Snap only the light-space right/up axes so
+			// rotating or zooming cannot slide blocker texels across the world.
+			float centerRight = lightViewRotation[0] * cameraX
+				+ lightViewRotation[4] * cameraY
+				+ lightViewRotation[8] * cameraZ;
+			float centerUp = lightViewRotation[1] * cameraX
+				+ lightViewRotation[5] * cameraY
+				+ lightViewRotation[9] * cameraZ;
+			float rightDelta = Math.round(centerRight / shadowTexelSize)
+				* shadowTexelSize - centerRight;
+			float upDelta = Math.round(centerUp / shadowTexelSize)
+				* shadowTexelSize - centerUp;
+
+			shadowCenterX = cameraX
+				+ lightViewRotation[0] * rightDelta
+				+ lightViewRotation[1] * upDelta;
+			shadowCenterY = cameraY
+				+ lightViewRotation[4] * rightDelta
+				+ lightViewRotation[5] * upDelta;
+			shadowCenterZ = cameraZ
+				+ lightViewRotation[8] * rightDelta
+				+ lightViewRotation[9] * upDelta;
+		}
+		else
+		{
+			// Preserve the established surface-shadow anchoring exactly.
+			shadowCenterX = Math.round(cameraX / shadowTexelSize) * shadowTexelSize;
+			shadowCenterY = Math.round(cameraY / shadowTexelSize) * shadowTexelSize;
+			shadowCenterZ = Math.round(cameraZ / shadowTexelSize) * shadowTexelSize;
+		}
 
 		/*
 		 * Start with orthographic projection.
@@ -915,7 +1141,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		Mat4.mul(
 				lightProjection,
-				makeLightViewRotation(sun[0], sun[1], sun[2])
+				lightViewRotation
 		);
 
 		/*
@@ -938,7 +1164,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		System.arraycopy(
 				lightProjection,
 				0,
-				currentShadowLightProj,
+				lightProjectionTarget,
 				0,
 				16
 		);
@@ -958,6 +1184,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				scene.getWorldViewId() == WorldView.TOPLEVEL
 						? (SCENE_OFFSET >> 3)
 						: 0;
+		boolean deferWater = advancedWaterEnabled(scene);
 
 		for (int zx = 0; zx < ctx.sizeX; ++zx)
 		{
@@ -971,50 +1198,79 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					continue;
 				}
 
-				zone.renderShadow(
+				if (atmosphereCasters)
+				{
+					zone.renderAtmosphereShadow(
 						zx - offset,
 						zz - offset,
 						ctx.minLevel,
 						ctx.level,
 						ctx.maxLevel,
 						ctx.hideRoofIds,
-						uniShadowBase
-				);
+						uniShadowBase,
+						deferWater
+					);
+				}
+				else
+				{
+					zone.renderSurfaceShadow(
+						zx - offset,
+						zz - offset,
+						ctx.minLevel,
+						ctx.level,
+						ctx.maxLevel,
+						ctx.hideRoofIds,
+						uniShadowBase,
+						deferWater
+					);
+				}
 			}
 		}
 
 		// =====================================================
 		// Restore normal RuneLite render state
 		// =====================================================
+		if (atmosphereCasters)
+		{
+			if (previousCullFace)
+			{
+				glEnable(GL_CULL_FACE);
+			}
+			else
+			{
+				glDisable(GL_CULL_FACE);
+			}
+		}
 
-		glBindVertexArray(0);
+		glBindVertexArray(previousVao);
 
 		/*
 		 * Go back to RuneLite's normal scene framebuffer.
 		 */
-		glBindFramebuffer(
-				GL_DRAW_FRAMEBUFFER,
-				fboScene
-		);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, previousReadFramebuffer);
 
-		glUseProgram(
-				glProgram
-		);
+		glUseProgram(previousProgram);
 
 		/*
 		 * RuneLite's normal renderer uses reversed depth.
 		 */
-		glDepthFunc(
-				GL_GREATER
-		);
+		glDepthFunc(previousDepthFunc);
+		glDepthMask(previousDepthMask);
+		if (previousDepthTest)
+		{
+			glEnable(GL_DEPTH_TEST);
+		}
+		else
+		{
+			glDisable(GL_DEPTH_TEST);
+		}
 
-		glClearDepth(
-				0.0
-		);
+		glClearDepth(previousClearDepth);
 
 		if (glCapabilities.OpenGL45)
 		{
-			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+			glClipControl(previousClipOrigin, previousClipDepthMode);
 		}
 
 		/*
@@ -1028,6 +1284,111 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		);
 
 		checkGLErrors();
+		return true;
+	}
+
+	private boolean filterAtmosphereShadowMap()
+	{
+		if (glAtmosphereShadowFilterProgram == 0
+			|| atmosphereShadowDepthTexture == 0
+			|| atmosphereFilteredShadowFbo == 0
+			|| atmosphereFilteredShadowDepthTexture == 0)
+		{
+			return false;
+		}
+
+		int[] previousViewport = new int[4];
+		glGetIntegerv(GL_VIEWPORT, previousViewport);
+		int previousDrawFramebuffer = glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
+		int previousReadFramebuffer = glGetInteger(GL_READ_FRAMEBUFFER_BINDING);
+		int previousProgram = glGetInteger(GL_CURRENT_PROGRAM);
+		int previousVao = glGetInteger(GL_VERTEX_ARRAY_BINDING);
+		int previousDepthFunc = glGetInteger(GL_DEPTH_FUNC);
+		boolean previousDepthTest = glIsEnabled(GL_DEPTH_TEST);
+		boolean previousDepthMask = glGetBoolean(GL_DEPTH_WRITEMASK);
+		boolean previousBlend = glIsEnabled(GL_BLEND);
+		boolean previousCullFace = glIsEnabled(GL_CULL_FACE);
+		boolean previousScissorTest = glIsEnabled(GL_SCISSOR_TEST);
+		double previousClearDepth = glGetDouble(GL_DEPTH_CLEAR_VALUE);
+		int previousActiveTexture = glGetInteger(GL_ACTIVE_TEXTURE);
+		glActiveTexture(GL_TEXTURE0);
+		int previousTexture0 = glGetInteger(GL_TEXTURE_BINDING_2D);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, atmosphereFilteredShadowFbo);
+		glViewport(
+			0,
+			0,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE);
+
+		glDisable(GL_BLEND);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_SCISSOR_TEST);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_ALWAYS);
+		glDepthMask(true);
+		glClearDepth(1.0);
+		glClear(GL_DEPTH_BUFFER_BIT);
+
+		glUseProgram(glAtmosphereShadowFilterProgram);
+		glBindVertexArray(vaoUiHandle);
+		glBindTexture(GL_TEXTURE_2D, atmosphereShadowDepthTexture);
+		glUniform1i(uniAtmosphereShadowFilterSourceDepth, 0);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		// Restore the exact GL state present after the raw blocker pass. This
+		// filter runs in the middle of RuneLite's scene setup, so leaking even an
+		// active texture or depth mode here can corrupt the main reversed-depth
+		// render later in the same frame.
+		glBindTexture(GL_TEXTURE_2D, previousTexture0);
+		glActiveTexture(previousActiveTexture);
+		glBindVertexArray(previousVao);
+		glUseProgram(previousProgram);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, previousReadFramebuffer);
+		glViewport(
+			previousViewport[0],
+			previousViewport[1],
+			previousViewport[2],
+			previousViewport[3]);
+		glDepthFunc(previousDepthFunc);
+		glDepthMask(previousDepthMask);
+		if (previousDepthTest)
+		{
+			glEnable(GL_DEPTH_TEST);
+		}
+		else
+		{
+			glDisable(GL_DEPTH_TEST);
+		}
+		if (previousBlend)
+		{
+			glEnable(GL_BLEND);
+		}
+		else
+		{
+			glDisable(GL_BLEND);
+		}
+		if (previousCullFace)
+		{
+			glEnable(GL_CULL_FACE);
+		}
+		else
+		{
+			glDisable(GL_CULL_FACE);
+		}
+		if (previousScissorTest)
+		{
+			glEnable(GL_SCISSOR_TEST);
+		}
+		else
+		{
+			glDisable(GL_SCISSOR_TEST);
+		}
+		glClearDepth(previousClearDepth);
+
+		checkGLErrors();
+		return true;
 	}
 
 	private void initUniforms()
@@ -1043,6 +1404,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniSkyRayStrength = glGetUniformLocation(glSkyProgram, "rayStrength");
 		uniSkyNightFactor = glGetUniformLocation(glSkyProgram, "nightFactor");
 		uniSkyMoonDirection = glGetUniformLocation(glSkyProgram, "moonDirection");
+		uniSkyCelestialVisibility = glGetUniformLocation(glSkyProgram, "celestialVisibility");
 		uniWorldProj = glGetUniformLocation(glProgram, "worldProj");
 		uniEntityProj = glGetUniformLocation(glProgram, "entityProj");
 		uniEntityTint = glGetUniformLocation(glProgram, "entityTint");
@@ -1051,18 +1413,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniShadowBase = glGetUniformLocation(glShadowProgram, "base");
 		uniSaturation = glGetUniformLocation(glProgram, "saturation");
 		uniContrast = glGetUniformLocation(glProgram, "contrast");
-		uniDynamicLighting = glGetUniformLocation(glProgram, "dynamicLighting");
-		uniLightIntensity = glGetUniformLocation(glProgram, "lightIntensity");
-		uniAmbientLight = glGetUniformLocation(glProgram, "ambientLight");
 		uniLightDirection = glGetUniformLocation(glProgram, "lightDirection");
 		uniCameraPosition = glGetUniformLocation(glProgram, "cameraPosition");
+		uniCelestialNightFactorMain = glGetUniformLocation(
+			glProgram, "celestialNightFactor");
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
 		uniWaterStrength = glGetUniformLocation(glProgram, "waterStrength");
 		uniWaterOpacity = glGetUniformLocation(glProgram, "waterOpacity");
 		uniLightningFlash = glGetUniformLocation(glProgram, "lightningFlash");
 		uniWeatherModeMain = glGetUniformLocation(glProgram, "weatherMode");
-		uniCelestialRayStrength = glGetUniformLocation(glProgram, "celestialRayStrength");
-		uniCelestialNightFactor = glGetUniformLocation(glProgram, "celestialNightFactor");
+		uniWeatherTimeMain = glGetUniformLocation(glProgram, "weatherTime");
+		uniWeatherDensityMain = glGetUniformLocation(glProgram, "weatherDensity");
 		uniSmoothBanding = glGetUniformLocation(glProgram, "smoothBanding");
 		uniBrightness = glGetUniformLocation(glProgram, "brightness");
 		uniUseFog = glGetUniformLocation(glProgram, "useFog");
@@ -1071,6 +1432,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniDrawDistance = glGetUniformLocation(glProgram, "drawDistance");
 		uniExpandedMapLoadingChunks = glGetUniformLocation(glProgram, "expandedMapLoadingChunks");
 		uniTextureLightMode = glGetUniformLocation(glProgram, "textureLightMode");
+		uniTerrainTextureBlending = glGetUniformLocation(glProgram, "terrainTextureBlending");
+		uniTerrainBlendStrength = glGetUniformLocation(glProgram, "terrainBlendStrength");
+		uniMaterialDebugMode = glGetUniformLocation(glProgram, "materialDebugMode");
+		uniMaterialLightingEnabled = glGetUniformLocation(glProgram, "materialLightingEnabled");
+		uniMaterialLightingStrength = glGetUniformLocation(glProgram, "materialLightingStrength");
+		uniWetSurfacesEnabled = glGetUniformLocation(glProgram, "wetSurfacesEnabled");
+		uniWetSurfaceStrength = glGetUniformLocation(glProgram, "wetSurfaceStrength");
 		uniTick = glGetUniformLocation(glProgram, "tick");
 		uniBlockMain = glGetUniformBlockIndex(glProgram, "uniforms");
 		uniTextures = glGetUniformLocation(glProgram, "textures");
@@ -1084,6 +1452,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniUiAlphaOverlay = glGetUniformLocation(glUiProgram, "alphaOverlay");
 		uniUiColorblindIntensity = glGetUniformLocation(glUiProgram, "colorblindIntensity");
 		uniShadowDebugMap = glGetUniformLocation(glShadowDebugProgram, "shadowMap");
+		uniAtmosphereShadowFilterSourceDepth = glGetUniformLocation(
+			glAtmosphereShadowFilterProgram, "sourceDepth");
 		uniWeatherProjection = glGetUniformLocation(glWeatherProgram, "projection");
 		uniWeatherCamera = glGetUniformLocation(glWeatherProgram, "cameraPosition");
 		uniWeatherTime = glGetUniformLocation(glWeatherProgram, "time");
@@ -1093,7 +1463,97 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniWeatherStreakLength = glGetUniformLocation(glWeatherProgram, "streakLength");
 		uniWeatherSnow = glGetUniformLocation(glWeatherProgram, "snow");
 		uniWeatherStorm = glGetUniformLocation(glWeatherProgram, "storm");
+		uniWeatherSevere = glGetUniformLocation(glWeatherProgram, "severe");
 		uniWeatherIntensity = glGetUniformLocation(glWeatherProgram, "intensity");
+		uniAtmosphereProjection = glGetUniformLocation(glAtmosphereProgram, "projection");
+		uniAtmosphereCamera = glGetUniformLocation(glAtmosphereProgram, "cameraPosition");
+		uniAtmosphereAnchor = glGetUniformLocation(glAtmosphereProgram, "anchorPosition");
+		uniAtmosphereTime = glGetUniformLocation(glAtmosphereProgram, "time");
+		uniAtmosphereRadius = glGetUniformLocation(glAtmosphereProgram, "radius");
+		uniAtmosphereWind = glGetUniformLocation(glAtmosphereProgram, "wind");
+		uniAtmosphereDensity = glGetUniformLocation(glAtmosphereProgram, "density");
+		uniAtmosphereBlizzard = glGetUniformLocation(glAtmosphereProgram, "blizzard");
+		uniAtmosphereLightning = glGetUniformLocation(glAtmosphereProgram, "lightningFlash");
+		uniAtmosphereLightDirection = glGetUniformLocation(glAtmosphereProgram, "lightDirection");
+		uniAtmosphereNightFactor = glGetUniformLocation(glAtmosphereProgram, "nightFactor");
+		uniVolumetricSceneColor = glGetUniformLocation(glVolumetricProgram, "sceneColor");
+		uniVolumetricSceneDepth = glGetUniformLocation(glVolumetricProgram, "sceneDepth");
+		uniVolumetricUvTransform = glGetUniformLocation(glVolumetricProgram, "sceneUvTransform");
+		uniVolumetricCelestialRayStrength = glGetUniformLocation(
+			glVolumetricProgram, "celestialRayStrength");
+		uniVolumetricMoonProfile = glGetUniformLocation(glVolumetricProgram, "moonProfile");
+		uniVolumetricWeatherMode = glGetUniformLocation(glVolumetricProgram, "weatherMode");
+		uniVolumetricWorldProjection = glGetUniformLocation(glVolumetricProgram, "worldProjection");
+		uniVolumetricCamera = glGetUniformLocation(glVolumetricProgram, "cameraPosition");
+		uniVolumetricLightDirection = glGetUniformLocation(glVolumetricProgram, "lightDirection");
+		uniVolumetricRayColor = glGetUniformLocation(glVolumetricProgram, "rayColor");
+		uniVolumetricShadowLightProj = glGetUniformLocation(glVolumetricProgram, "shadowLightProj");
+		uniVolumetricShadowMap = glGetUniformLocation(glVolumetricProgram, "shadowMap");
+		uniVolumetricShadowMapValid = glGetUniformLocation(glVolumetricProgram, "shadowMapValid");
+		uniVolumetricZeroToOneDepth = glGetUniformLocation(glVolumetricProgram, "zeroToOneDepth");
+		uniVolumetricCompositeSceneColor = glGetUniformLocation(
+			glVolumetricCompositeProgram, "sceneColor");
+		uniVolumetricCompositeSceneDepth = glGetUniformLocation(
+			glVolumetricCompositeProgram, "sceneDepth");
+		uniVolumetricCompositeRays = glGetUniformLocation(
+			glVolumetricCompositeProgram, "rayTexture");
+		uniVolumetricCompositeSceneUvTransform = glGetUniformLocation(
+			glVolumetricCompositeProgram, "sceneUvTransform");
+		uniVolumetricCompositeRayUvTransform = glGetUniformLocation(
+			glVolumetricCompositeProgram, "rayUvTransform");
+		uniVolumetricCompositeRayTexelSize = glGetUniformLocation(
+			glVolumetricCompositeProgram, "rayTexelSize");
+		uniGrassProjection = glGetUniformLocation(glGrassProgram, "projection");
+		uniGrassCamera = glGetUniformLocation(glGrassProgram, "cameraPosition");
+		uniGrassFocus = glGetUniformLocation(glGrassProgram, "focusPosition");
+		uniGrassTime = glGetUniformLocation(glGrassProgram, "time");
+		uniGrassDrawRadius = glGetUniformLocation(glGrassProgram, "drawRadius");
+		uniGrassHeightScale = glGetUniformLocation(glGrassProgram, "heightScale");
+		uniGrassWindStrength = glGetUniformLocation(glGrassProgram, "windStrength");
+		uniGrassWeatherModeVert = glGetUniformLocation(glGrassProgram, "weatherMode");
+		uniGrassLightDirection = glGetUniformLocation(glGrassProgram, "lightDirection");
+		uniGrassLightIntensity = glGetUniformLocation(glGrassProgram, "lightIntensity");
+		uniGrassAmbientLight = glGetUniformLocation(glGrassProgram, "ambientLight");
+		uniGrassLightningFlash = glGetUniformLocation(glGrassProgram, "lightningFlash");
+		uniGrassWeatherModeFrag = glGetUniformLocation(glGrassProgram, "weatherMode");
+		uniGrassNightFactor = glGetUniformLocation(glGrassProgram, "nightFactor");
+		uniGrassBrightness = glGetUniformLocation(glGrassProgram, "brightness");
+		uniGrassEnhancedColors = glGetUniformLocation(glGrassProgram, "enhancedColors");
+		uniGrassSaturation = glGetUniformLocation(glGrassProgram, "saturation");
+		uniGrassContrast = glGetUniformLocation(glGrassProgram, "contrast");
+		uniGrassFogColor = glGetUniformLocation(glGrassProgram, "fogColor");
+		uniGrassShadowMap = glGetUniformLocation(glGrassProgram, "shadowMap");
+		uniGrassShadowLightProj = glGetUniformLocation(glGrassProgram, "shadowLightProj");
+		uniGrassShadowsEnabled = glGetUniformLocation(glGrassProgram, "shadowsEnabled");
+		uniGrassShadowStrength = glGetUniformLocation(glGrassProgram, "shadowStrength");
+		uniGrassMaterialDebugMode = glGetUniformLocation(glGrassProgram, "materialDebugMode");
+		uniGrassWetSurfacesEnabled = glGetUniformLocation(glGrassProgram, "wetSurfacesEnabled");
+		uniGrassWetSurfaceStrength = glGetUniformLocation(glGrassProgram, "wetSurfaceStrength");
+		uniWaterProjection = glGetUniformLocation(glWaterProgram, "projection");
+		uniWaterBase = glGetUniformLocation(glWaterProgram, "base");
+		uniWaterSceneColor = glGetUniformLocation(glWaterProgram, "sceneColor");
+		uniWaterSceneDepth = glGetUniformLocation(glWaterProgram, "sceneDepth");
+		uniWaterSkyTexture = glGetUniformLocation(glWaterProgram, "skyTexture");
+		uniWaterShadowMap = glGetUniformLocation(glWaterProgram, "shadowMap");
+		uniWaterWorldProjection = glGetUniformLocation(glWaterProgram, "worldProjection");
+		uniWaterShadowLightProj = glGetUniformLocation(glWaterProgram, "shadowLightProj");
+		uniWaterUvTransform = glGetUniformLocation(glWaterProgram, "sceneUvTransform");
+		uniWaterTargetSize = glGetUniformLocation(glWaterProgram, "sceneTargetSize");
+		uniWaterCamera = glGetUniformLocation(glWaterProgram, "cameraPosition");
+		uniWaterLightDirection = glGetUniformLocation(glWaterProgram, "lightDirection");
+		uniWaterFogColor = glGetUniformLocation(glWaterProgram, "fogColor");
+		uniWaterTime = glGetUniformLocation(glWaterProgram, "time");
+		uniWaterPassStrength = glGetUniformLocation(glWaterProgram, "waterStrength");
+		uniWaterPassOpacity = glGetUniformLocation(glWaterProgram, "waterOpacity");
+		uniWaterDrawDistance = glGetUniformLocation(glWaterProgram, "drawDistance");
+		uniWaterNightFactor = glGetUniformLocation(glWaterProgram, "nightFactor");
+		uniWaterLightningFlash = glGetUniformLocation(glWaterProgram, "lightningFlash");
+		uniWaterWeatherDensity = glGetUniformLocation(glWaterProgram, "weatherDensity");
+		uniWaterWeatherMode = glGetUniformLocation(glWaterProgram, "weatherMode");
+		uniWaterShadowMapValid = glGetUniformLocation(glWaterProgram, "shadowMapValid");
+		uniWaterZeroToOneDepth = glGetUniformLocation(glWaterProgram, "zeroToOneDepth");
+		uniWaterSkyReflectionEnabled = glGetUniformLocation(glWaterProgram, "skyReflectionEnabled");
+		uniWaterMaterialDebugMode = glGetUniformLocation(glWaterProgram, "materialDebugMode");
 	}
 
 	private void shutdownProgram()
@@ -1108,6 +1568,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			glDeleteProgram(glShadowProgram);
 			glShadowProgram = 0;
+		}
+
+		if (glAtmosphereShadowFilterProgram != 0)
+		{
+			glDeleteProgram(glAtmosphereShadowFilterProgram);
+			glAtmosphereShadowFilterProgram = 0;
 		}
 
 		if (glSkyProgram != 0)
@@ -1132,6 +1598,36 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			glDeleteProgram(glWeatherProgram);
 			glWeatherProgram = 0;
+		}
+
+		if (glAtmosphereProgram != 0)
+		{
+			glDeleteProgram(glAtmosphereProgram);
+			glAtmosphereProgram = 0;
+		}
+
+		if (glVolumetricProgram != 0)
+		{
+			glDeleteProgram(glVolumetricProgram);
+			glVolumetricProgram = 0;
+		}
+
+		if (glVolumetricCompositeProgram != 0)
+		{
+			glDeleteProgram(glVolumetricCompositeProgram);
+			glVolumetricCompositeProgram = 0;
+		}
+
+		if (glGrassProgram != 0)
+		{
+			glDeleteProgram(glGrassProgram);
+			glGrassProgram = 0;
+		}
+
+		if (glWaterProgram != 0)
+		{
+			glDeleteProgram(glWaterProgram);
+			glWaterProgram = 0;
 		}
 	}
 
@@ -1175,6 +1671,42 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glDeleteVertexArrays(vaoUiHandle);
 		vaoUiHandle = 0;
+	}
+
+	private void initGrassVao()
+	{
+		vaoGrassHandle = glGenVertexArrays();
+		vboGrassInstanceHandle = glGenBuffers();
+		glBindVertexArray(vaoGrassHandle);
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			(long) MAX_SURFACE_DETAIL_INSTANCES
+				* SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES,
+			GL_STREAM_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 4, GL_FLOAT, false,
+			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 0);
+		glVertexAttribDivisor(0, 1);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, false,
+			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
+		glVertexAttribDivisor(1, 1);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	private void shutdownGrassVao()
+	{
+		if (vboGrassInstanceHandle != 0)
+		{
+			glDeleteBuffers(vboGrassInstanceHandle);
+			vboGrassInstanceHandle = 0;
+		}
+		if (vaoGrassHandle != 0)
+		{
+			glDeleteVertexArrays(vaoGrassHandle);
+			vaoGrassHandle = 0;
+		}
 	}
 
 	private void initSkyVao()
@@ -1490,22 +2022,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			);
 
 			/*
-			 * Caps.
-			 * Their exact orientation matters much less for OSRS.
-			 * We can tune them later.
+			 * Caps. RuneLite's rendered elevation points toward -Y, so the
+			 * atlas TOP belongs on the cubemap's negative-Y face. Keep these
+			 * separate from the calibrated wall mapping above.
 			 */
 			uploadCubemapFace(
 					image,
 					GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
-					1,
+					0,
 					0,
 					faceWidth
 			);
 
-			uploadCubemapFace(
+			uploadCubemapFaceRotatedCounterClockwise(
 					image,
 					GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
-					0,
+					1,
 					0,
 					faceWidth
 			);
@@ -1605,6 +2137,60 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		);
 	}
 
+	/**
+	 * Upload the atlas roof with the orientation expected by OpenGL's negative-Y
+	 * cubemap face. This is intentionally roof-only: the four calibrated wall
+	 * faces must retain their existing uploads and orientation.
+	 */
+	private void uploadCubemapFaceRotatedCounterClockwise(
+			BufferedImage atlas,
+			int target,
+			int cellX,
+			int cellY,
+			int faceSize)
+	{
+		ByteBuffer pixels =
+				ByteBuffer.allocateDirect(faceSize * faceSize * 4);
+
+		int startX = cellX * faceSize;
+		int startY = cellY * faceSize;
+
+		/*
+		 * Iterate destination rows bottom-to-top for OpenGL, while selecting
+		 * source pixels from a 90-degree counter-clockwise rotation. This makes
+		 * all four roof edges meet the already-calibrated wall faces.
+		 */
+		for (int y = faceSize - 1; y >= 0; y--)
+		{
+			for (int x = 0; x < faceSize; x++)
+			{
+				int argb = atlas.getRGB(
+						startX + faceSize - 1 - y,
+						startY + x
+				);
+
+				pixels.put((byte) ((argb >> 16) & 0xFF));
+				pixels.put((byte) ((argb >> 8) & 0xFF));
+				pixels.put((byte) (argb & 0xFF));
+				pixels.put((byte) ((argb >> 24) & 0xFF));
+			}
+		}
+
+		pixels.flip();
+
+		glTexImage2D(
+				target,
+				0,
+				GL_RGBA8,
+				faceSize,
+				faceSize,
+				0,
+				GL_RGBA,
+				GL_UNSIGNED_BYTE,
+				pixels
+		);
+	}
+
 	private void initSkyTextures()
 	{
 		cosmicSkyTexture = loadSkyCubemap("cosmic_test.png");
@@ -1614,11 +2200,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		rainSkyTextures[0] = loadSkyCubemap("weather/skies/rain/sky283_day_rain.png");
 		rainSkyTextures[1] = loadSkyCubemap("weather/skies/rain/sky280_sunset_rain.png");
 		rainSkyTextures[2] = loadSkyCubemap("weather/skies/rain/sky282_night_rain.png");
-		snowSkyTextures[0] = loadSkyCubemap("weather/skies/snow/sky273_day_snow.png");
-		snowSkyTextures[1] = loadSkyCubemap("weather/skies/snow/sky271_sunrise_snow.png");
-		snowSkyTextures[2] = loadSkyCubemap("weather/skies/snow/sky272_night_snow.png");
-		snowSkyTextures[3] = loadSkyCubemap("weather/skies/snow/sky278_thunder_snow.png");
-		snowSkyTextures[4] = loadSkyCubemap("weather/skies/snow/sky279_thunder_snow_high.png");
+		// Snow and blizzard deliberately share the same high-cloud, low-horizon
+		// atlas. Loading it once also avoids keeping four unused 1024px cubemaps
+		// resident on the GPU.
+		snowSkyTexture = loadSkyCubemap("weather/skies/snow/sky273_day_snow.png");
 		lightningSkyTextures[0] = loadSkyCubemap("weather/skies/lightning/sky303_lightning1_stage1.png");
 		lightningSkyTextures[1] = loadSkyCubemap("weather/skies/lightning/sky304_lightning1_stage2.png");
 		lightningSkyTextures[2] = loadSkyCubemap("weather/skies/lightning/sky307_lightning3_stage1.png");
@@ -1633,6 +2218,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	}
 
 	private void initShadowMap()
+	{
+		initSurfaceShadowMap();
+		initAtmosphereShadowMap();
+	}
+
+	private void initSurfaceShadowMap()
 	{
 		// =====================================================
 		// Create depth texture
@@ -1681,6 +2272,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				GL_TEXTURE_WRAP_T,
 				GL_CLAMP_TO_EDGE
 		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 
 
 		// =====================================================
@@ -1750,6 +2342,92 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		);
 	}
 
+	private void initAtmosphereShadowMap()
+	{
+		atmosphereShadowDepthTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, atmosphereShadowDepthTexture);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_DEPTH_COMPONENT24,
+			ATMOSPHERE_SHADOW_MAP_SIZE,
+			ATMOSPHERE_SHADOW_MAP_SIZE,
+			0,
+			GL_DEPTH_COMPONENT,
+			GL_FLOAT,
+			(ByteBuffer) null);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+
+		atmosphereShadowFbo = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, atmosphereShadowFbo);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D,
+			atmosphereShadowDepthTexture,
+			0);
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+		int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				"Atmosphere shadow framebuffer is incomplete. Status: " + status);
+		}
+
+		atmosphereFilteredShadowDepthTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, atmosphereFilteredShadowDepthTexture);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_DEPTH_COMPONENT24,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE,
+			0,
+			GL_DEPTH_COMPONENT,
+			GL_FLOAT,
+			(ByteBuffer) null);
+		// Linear comparison sampling supplies the final sub-texel PCF after the
+		// explicit macro filter has removed isolated roof/triangle detail.
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(
+			GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
+		atmosphereFilteredShadowFbo = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, atmosphereFilteredShadowFbo);
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D,
+			atmosphereFilteredShadowDepthTexture,
+			0);
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				"Filtered atmosphere shadow framebuffer is incomplete. Status: " + status);
+		}
+
+		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+		glBindTexture(GL_TEXTURE_2D, 0);
+		log.info(
+			"Initialized {}x{} atmosphere blocker map and {}x{} macro filter",
+			ATMOSPHERE_SHADOW_MAP_SIZE,
+			ATMOSPHERE_SHADOW_MAP_SIZE,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE,
+			ATMOSPHERE_FILTERED_SHADOW_MAP_SIZE);
+	}
+
 	private void shutdownShadowMap()
 	{
 		if (shadowFbo != 0)
@@ -1763,6 +2441,32 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glDeleteTextures(shadowDepthTexture);
 			shadowDepthTexture = 0;
 		}
+
+		if (atmosphereShadowFbo != 0)
+		{
+			glDeleteFramebuffers(atmosphereShadowFbo);
+			atmosphereShadowFbo = 0;
+		}
+
+		if (atmosphereShadowDepthTexture != 0)
+		{
+			glDeleteTextures(atmosphereShadowDepthTexture);
+			atmosphereShadowDepthTexture = 0;
+		}
+
+		if (atmosphereFilteredShadowFbo != 0)
+		{
+			glDeleteFramebuffers(atmosphereFilteredShadowFbo);
+			atmosphereFilteredShadowFbo = 0;
+		}
+
+		if (atmosphereFilteredShadowDepthTexture != 0)
+		{
+			glDeleteTextures(atmosphereFilteredShadowDepthTexture);
+			atmosphereFilteredShadowDepthTexture = 0;
+		}
+		surfaceShadowMapValid = false;
+		atmosphereShadowMapValid = false;
 	}
 
 	private void initFbo(int width, int height, int aaSamples)
@@ -1804,8 +2508,75 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			throw new RuntimeException("FBO is incomplete. status: " + status);
 		}
 
+		// Resolve the multisampled scene into sampleable color and reversed-depth
+		// textures. Deferred water and volumetric light read these, then write back
+		// to fboScene; no attachment is sampled while it is being rendered to.
+		fboSceneResolved = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, fboSceneResolved);
+
+		sceneColorTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, sceneColorTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+			GL_RGBA, GL_UNSIGNED_BYTE, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D, sceneColorTexture, 0);
+
+		sceneDepthTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, sceneDepthTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, width, height, 0,
+			GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+			GL_TEXTURE_2D, sceneDepthTexture, 0);
+
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				"Resolved scene FBO is incomplete. status: " + status);
+		}
+
+		// Volumetric lighting is evaluated at half resolution. Besides reducing the
+		// shadow-map march cost, this gives the atmospheric signal a stable physical
+		// footprint instead of exposing individual terrain triangles and roof slats.
+		volumetricTargetWidth = Math.max(1, (width + 1) / 2);
+		volumetricTargetHeight = Math.max(1, (height + 1) / 2);
+		fboVolumetric = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, fboVolumetric);
+
+		volumetricTexture = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, volumetricTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F,
+			volumetricTargetWidth, volumetricTargetHeight, 0,
+			GL_RGBA, GL_HALF_FLOAT, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D, volumetricTexture, 0);
+
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+		{
+			throw new RuntimeException(
+				"Volumetric FBO is incomplete. status: " + status);
+		}
+
+		sceneTargetWidth = width;
+		sceneTargetHeight = height;
+
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+		glBindTexture(GL_TEXTURE_2D, 0);
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 
@@ -1828,6 +2599,41 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glDeleteRenderbuffers(rboDepthBuffer);
 			rboDepthBuffer = 0;
 		}
+
+		if (fboSceneResolved != -1)
+		{
+			glDeleteFramebuffers(fboSceneResolved);
+			fboSceneResolved = -1;
+		}
+
+		if (sceneColorTexture != 0)
+		{
+			glDeleteTextures(sceneColorTexture);
+			sceneColorTexture = 0;
+		}
+
+		if (sceneDepthTexture != 0)
+		{
+			glDeleteTextures(sceneDepthTexture);
+			sceneDepthTexture = 0;
+		}
+
+		if (fboVolumetric != -1)
+		{
+			glDeleteFramebuffers(fboVolumetric);
+			fboVolumetric = -1;
+		}
+
+		if (volumetricTexture != 0)
+		{
+			glDeleteTextures(volumetricTexture);
+			volumetricTexture = 0;
+		}
+
+		sceneTargetWidth = 0;
+		sceneTargetHeight = 0;
+		volumetricTargetWidth = 0;
+		volumetricTargetHeight = 0;
 	}
 
 	@Override
@@ -1851,6 +2657,18 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 		{
+			if (++grassVisibilityFrame <= 0)
+			{
+				grassVisibilityFrame = 1;
+				for (Zone[] zoneRow : root.zones)
+				{
+					for (Zone zone : zoneRow)
+					{
+						zone.surfaceDetailVisibleFrame = -1;
+						zone.waterVisibleFrame = -1;
+					}
+				}
+			}
 			for (int i = 0; i < rts.length; ++i) // NOPMD: ForLoopCanBeForeach
 			{
 				rts[i].vaoO.map();
@@ -1897,10 +2715,59 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform3f(uniform, rayR, rayG, rayB);
 	}
 
-	private SkyMode getEnvironmentSkyMode()
+	private static float smoothStep(float value)
+	{
+		float t = Math.max(0.0f, Math.min(1.0f, value));
+		return t * t * (3.0f - 2.0f * t);
+	}
+
+	private static void copyDirection(float[] source, float[] target)
+	{
+		System.arraycopy(source, 0, target, 0, 3);
+	}
+
+	private static void setArcDirection(
+		float[] target,
+		float[] start,
+		float[] end,
+		float progress)
+	{
+		float t = smoothStep(progress);
+		double startAzimuth = Math.atan2(start[2], start[0]);
+		double endAzimuth = Math.atan2(end[2], end[0]);
+		while (endAzimuth <= startAzimuth)
+		{
+			endAzimuth += Math.PI * 2.0;
+		}
+
+		double startElevation = Math.atan2(
+			start[1], Math.sqrt(start[0] * start[0] + start[2] * start[2]));
+		double endElevation = Math.atan2(
+			end[1], Math.sqrt(end[0] * end[0] + end[2] * end[2]));
+		double baseElevation = startElevation + (endElevation - startElevation) * t;
+		double elevation = baseElevation
+			+ Math.sin(Math.PI * t) * (CELESTIAL_PEAK_ELEVATION - baseElevation);
+		double azimuth = startAzimuth + (endAzimuth - startAzimuth) * t;
+		double horizontal = Math.cos(elevation);
+
+		target[0] = (float) (horizontal * Math.cos(azimuth));
+		target[1] = (float) Math.sin(elevation);
+		target[2] = (float) (horizontal * Math.sin(azimuth));
+	}
+
+	private static float getStaticNightFactor(SkyMode skyMode)
+	{
+		if (skyMode == SkyMode.NIGHT || skyMode == SkyMode.COSMIC)
+		{
+			return 1.0f;
+		}
+		return skyMode == SkyMode.SUNSET ? 0.18f : 0.0f;
+	}
+
+	private SkyMode resolveEnvironmentSkyMode(double cyclePhase)
 	{
 		WeatherMode weather = config.weatherMode();
-		if (weather == WeatherMode.STORM || weather == WeatherMode.BLIZZARD)
+		if (weather == WeatherMode.STORM)
 		{
 			return SkyMode.NIGHT;
 		}
@@ -1908,7 +2775,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			return SkyMode.SUNSET;
 		}
-		if (weather == WeatherMode.SNOW)
+		if (weather == WeatherMode.SNOW || weather == WeatherMode.BLIZZARD)
 		{
 			return SkyMode.DAY;
 		}
@@ -1917,49 +2784,169 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			return config.skyMode();
 		}
 
-		long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
-		double phase = (System.currentTimeMillis() % cycleMillis) / (double) cycleMillis;
-		if (phase < 0.35)
+		if (cyclePhase < 0.35)
 		{
 			return SkyMode.DAY;
 		}
-		if (phase < 0.50)
+		if (cyclePhase < 0.50)
 		{
 			return SkyMode.SUNSET;
 		}
-		if (phase < 0.85)
+		if (cyclePhase < 0.85)
 		{
 			return SkyMode.NIGHT;
 		}
 		return SkyMode.SUNSET;
 	}
 
+	private FrameEnvironment updateFrameEnvironment(long timeMillis)
+	{
+		FrameEnvironment environment = frameEnvironment;
+		environment.initialized = true;
+		environment.timeMillis = timeMillis;
+
+		boolean cycleEnabled = config.dayNightCycle();
+		long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
+		double phase = cycleEnabled
+			? (timeMillis % cycleMillis) / (double) cycleMillis : 0.0;
+		environment.skyMode = resolveEnvironmentSkyMode(phase);
+
+		if (cycleEnabled)
+		{
+			if (phase < 0.50)
+			{
+				setArcDirection(environment.sunDirection, MORNING_SUN, EVENING_SUN,
+					(float) (phase / 0.50));
+			}
+			else if (phase < 0.85)
+			{
+				setArcDirection(environment.sunDirection, EVENING_SUN, MORNING_SUN,
+					(float) ((phase - 0.50) / 0.35));
+			}
+			else
+			{
+				copyDirection(MORNING_SUN, environment.sunDirection);
+			}
+			copyDirection(environment.sunDirection, environment.moonDirection);
+
+			if (config.weatherMode() == WeatherMode.CLEAR)
+			{
+				if (phase < 0.35)
+				{
+					environment.nightFactor = 0.0f;
+				}
+				else if (phase < 0.50)
+				{
+					environment.nightFactor = smoothStep(
+						(float) ((phase - 0.35) / 0.15));
+				}
+				else if (phase < 0.85)
+				{
+					environment.nightFactor = 1.0f;
+				}
+				else
+				{
+					environment.nightFactor = 1.0f - smoothStep(
+						(float) ((phase - 0.85) / 0.15));
+				}
+			}
+			else
+			{
+				environment.nightFactor = getStaticNightFactor(environment.skyMode);
+			}
+		}
+		else
+		{
+			SunPosition sunPosition = config.sunPosition();
+			float[] selectedSun = sunPosition == SunPosition.NOON ? NOON_SUN
+				: sunPosition == SunPosition.EVENING ? EVENING_SUN : MORNING_SUN;
+			MoonPosition moonPosition = config.moonPosition();
+			float[] selectedMoon = moonPosition == MoonPosition.OVERHEAD ? NOON_SUN
+				: moonPosition == MoonPosition.NORTHWEST ? EVENING_SUN : MORNING_SUN;
+			copyDirection(selectedSun, environment.sunDirection);
+			copyDirection(selectedMoon, environment.moonDirection);
+			environment.nightFactor = getStaticNightFactor(environment.skyMode);
+		}
+
+		float[] activeDirection = environment.skyMode == SkyMode.NIGHT
+			|| environment.skyMode == SkyMode.COSMIC
+			? environment.moonDirection : environment.sunDirection;
+		copyDirection(activeDirection, environment.activeLightDirection);
+		// RuneLite scene elevation grows toward negative Y. Convert once here so
+		// surface shadows and atmospheric blockers share the exact same convention.
+		environment.activeSceneDirection[0] = activeDirection[0];
+		environment.activeSceneDirection[1] = -activeDirection[1];
+		environment.activeSceneDirection[2] = activeDirection[2];
+		return environment;
+	}
+
+	private void ensureFrameEnvironment()
+	{
+		if (!frameEnvironment.initialized)
+		{
+			updateFrameEnvironment(System.currentTimeMillis());
+		}
+	}
+
+	private SkyMode getEnvironmentSkyMode()
+	{
+		ensureFrameEnvironment();
+		return frameEnvironment.skyMode;
+	}
+
 	private float[] getSunDirection()
 	{
-		SunPosition position = config.sunPosition();
-		if (config.dayNightCycle())
-		{
-			long cycleMillis = Math.max(2, config.dayNightCycleMinutes()) * 60_000L;
-			double phase = (System.currentTimeMillis() % cycleMillis) / (double) cycleMillis;
-			position = phase < 0.16 || phase >= 0.88 ? SunPosition.MORNING
-				: phase < 0.40 ? SunPosition.NOON : SunPosition.EVENING;
-		}
-		return position == SunPosition.NOON ? NOON_SUN
-			: position == SunPosition.EVENING ? EVENING_SUN : MORNING_SUN;
+		ensureFrameEnvironment();
+		return frameEnvironment.sunDirection;
 	}
 
 	private float[] getMoonDirection()
 	{
-		MoonPosition position = config.moonPosition();
-		return position == MoonPosition.OVERHEAD ? NOON_SUN
-			: position == MoonPosition.NORTHWEST ? EVENING_SUN : MORNING_SUN;
+		ensureFrameEnvironment();
+		return frameEnvironment.moonDirection;
 	}
 
 	private float[] getActiveLightDirection()
 	{
-		SkyMode sky = getEnvironmentSkyMode();
-		return sky == SkyMode.NIGHT || sky == SkyMode.COSMIC
-			? getMoonDirection() : getSunDirection();
+		ensureFrameEnvironment();
+		return frameEnvironment.activeLightDirection;
+	}
+
+	private float[] getActiveSceneLightDirection()
+	{
+		ensureFrameEnvironment();
+		return frameEnvironment.activeSceneDirection;
+	}
+
+	@VisibleForTesting
+	static boolean isMoonEnvironment(SkyMode skyMode)
+	{
+		return skyMode == SkyMode.NIGHT || skyMode == SkyMode.COSMIC;
+	}
+
+	private float getSunRayStrength()
+	{
+		return config.godRays()
+			? Ints.constrainToRange(config.godRaysStrength(), 0, 200) / 100.0f
+			: 0.0f;
+	}
+
+	private float getMoonRayStrength()
+	{
+		return config.moonRays()
+			? Ints.constrainToRange(config.moonRaysStrength(), 0, 200) / 100.0f
+			: 0.0f;
+	}
+
+	private float getActiveCelestialRayStrength()
+	{
+		SkyMode skyMode = getEnvironmentSkyMode();
+		if (skyMode == SkyMode.OFF)
+		{
+			return 0.0f;
+		}
+		return isMoonEnvironment(skyMode)
+			? getMoonRayStrength() : getSunRayStrength();
 	}
 
 	private void drawCustomSky(
@@ -1995,7 +2982,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		Mat4.mul(skyProjection, Mat4.rotateX(cameraPitch));
 		Mat4.mul(skyProjection, Mat4.rotateY(cameraYaw));
-
 		glUniformMatrix4fv(
 				uniSkyProj,
 				false,
@@ -2004,9 +2990,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		int selectedSkyTexture;
 		WeatherMode weather = config.weatherMode();
-		int lightningTexture = getLightningTexture(System.currentTimeMillis());
+		int lightningTexture = getLightningTexture(frameEnvironment.timeMillis);
 
-		if (lightningTexture != 0 && (weather == WeatherMode.STORM || weather == WeatherMode.BLIZZARD))
+		if (lightningTexture != 0 && weather == WeatherMode.STORM)
 		{
 			selectedSkyTexture = lightningTexture;
 		}
@@ -2018,13 +3004,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			selectedSkyTexture = rainSkyTextures[2];
 		}
-		else if (weather == WeatherMode.SNOW)
+		else if (weather == WeatherMode.SNOW || weather == WeatherMode.BLIZZARD)
 		{
-			selectedSkyTexture = snowSkyTextures[0];
-		}
-		else if (weather == WeatherMode.BLIZZARD)
-		{
-			selectedSkyTexture = snowSkyTextures[3];
+			selectedSkyTexture = snowSkyTexture;
 		}
 		else switch (getEnvironmentSkyMode())
 		{
@@ -2045,6 +3027,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				selectedSkyTexture = cosmicSkyTexture;
 				break;
 		}
+		activeSkyTexture = selectedSkyTexture;
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, selectedSkyTexture);
@@ -2057,12 +3040,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		setEnvironmentRayColor(uniSkyRayColor);
 		glUniform1f(
 				uniSkyRayStrength,
-				config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f
+				config.celestialGlareStrength() / 100.0f
 		);
-		SkyMode celestialSky = getEnvironmentSkyMode();
-		glUniform1f(uniSkyNightFactor,
-			celestialSky == SkyMode.NIGHT || celestialSky == SkyMode.COSMIC ? 1.0f
-				: celestialSky == SkyMode.SUNSET ? 0.18f : 0.0f);
+		glUniform1f(uniSkyNightFactor, frameEnvironment.nightFactor);
+		// A blizzard still uses the sun's direction and warm scattering, but the
+		// dense cloud deck hides most of the actual disc and halo.
+		glUniform1f(uniSkyCelestialVisibility,
+			weather == WeatherMode.BLIZZARD ? 0.18f : 1.0f);
 
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(false);
@@ -2092,6 +3076,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private void preSceneDrawToplevel(Scene scene,
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw)
 	{
+		updateFrameEnvironment(System.currentTimeMillis());
 		scene.setDrawDistance(getDrawDistance());
 
 		// UBO
@@ -2321,6 +3306,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				uniUseFog,
 				fogDepth > 0 ? 1 : 0
 		);
+		currentFogR = fogR;
+		currentFogG = fogG;
+		currentFogB = fogB;
+		currentDrawDistance = drawDistance * Perspective.LOCAL_TILE_SIZE;
 
 		glUniform4f(
 				uniFogColor,
@@ -2372,6 +3361,27 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				config.brightTextures() ? 1f : 0f
 		);
 
+		glUniform1i(
+				uniTerrainTextureBlending,
+				config.terrainTextureBlending() ? 1 : 0
+		);
+
+		glUniform1f(
+				uniTerrainBlendStrength,
+				config.terrainBlendStrength() / 100f
+		);
+		glUniform1i(uniMaterialDebugMode, config.materialDebugMode().getId());
+		glUniform1i(uniMaterialLightingEnabled, config.materialLighting() ? 1 : 0);
+		glUniform1f(
+			uniMaterialLightingStrength,
+			config.materialLightingStrength() / 100.0f
+		);
+		glUniform1i(uniWetSurfacesEnabled, config.wetSurfaces() ? 1 : 0);
+		glUniform1f(
+			uniWetSurfaceStrength,
+			config.wetSurfaceStrength() / 100.0f
+		);
+
 		// =====================================================
 		// Enhanced colors
 		// =====================================================
@@ -2391,45 +3401,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				1.0f + (config.contrast() - 100) / 50.0f
 		);
 
-		// =====================================================
-		// Lightweight directional lighting
-		// =====================================================
-
-		glUniform1i(
-				uniDynamicLighting,
-				config.dynamicLighting() ? 1 : 0
-		);
-
-		SkyMode lightingSky = getEnvironmentSkyMode();
-		float nightDirect = lightingSky == SkyMode.NIGHT || lightingSky == SkyMode.COSMIC
-			? config.nightDirectLight() / 100.0f
-			: lightingSky == SkyMode.SUNSET ? 0.72f : 1.0f;
-		float nightAmbient = lightingSky == SkyMode.NIGHT || lightingSky == SkyMode.COSMIC
-			? config.nightAmbientLight() / 100.0f
-			: lightingSky == SkyMode.SUNSET ? 0.72f : 1.0f;
-		glUniform1f(
-				uniLightIntensity,
-				config.lightIntensity() / 100.0f * nightDirect
-		);
-
-		glUniform1f(
-				uniAmbientLight,
-				config.ambientLight() / 100.0f * nightAmbient
-		);
-
-		/*
-		 * Temporary fixed light direction.
-		 *
-		 * RuneLite world orientation:
-		 * +X = East
-		 * -X = West
-		 * +Y = Up
-		 * +Z = North
-		 * -Z = South
-		 *
-		 * This currently places the "sun" high in the sky,
-		 * somewhat toward the southeast, matching RuneScape's baked model light.
-		 */
+		// Surface color remains RuneLite's stock texture/HSL result. These shared
+		// environment values are only consumed by selective shadows and explicitly
+		// tagged material effects such as wet terrain.
 		float[] sun = getActiveLightDirection();
 		glUniform3f(
 				uniLightDirection,
@@ -2437,20 +3411,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				sun[1],
 				sun[2]
 		);
-
 		glUniform3f(
 				uniCameraPosition,
 				cameraX,
 				cameraY,
 				cameraZ
 		);
-		SkyMode raySky = getEnvironmentSkyMode();
-		float celestialNight = raySky == SkyMode.NIGHT || raySky == SkyMode.COSMIC ? 1.0f
-			: raySky == SkyMode.SUNSET ? 0.18f : 0.0f;
-		glUniform1f(uniCelestialRayStrength,
-			config.godRays() ? config.godRaysStrength() / 100.0f : 0.0f);
-		glUniform1f(uniCelestialNightFactor, celestialNight);
-
+		glUniform1f(uniCelestialNightFactorMain, frameEnvironment.nightFactor);
 		glUniform1i(
 				uniEnhancedWater,
 				config.enhancedWater() ? 1 : 0
@@ -2464,10 +3431,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				config.waterOpacity() / 100.0f
 		);
 		WeatherMode activeWeather = config.weatherMode();
-		float lightningFlash = activeWeather == WeatherMode.STORM || activeWeather == WeatherMode.BLIZZARD
-			? getLightningFlash(System.currentTimeMillis()) : 0.0f;
+		float lightningFlash = activeWeather == WeatherMode.STORM
+			? getLightningFlash(frameEnvironment.timeMillis) : 0.0f;
 		glUniform1f(uniLightningFlash, lightningFlash);
 		glUniform1i(uniWeatherModeMain, activeWeather.ordinal());
+		glUniform1f(uniWeatherTimeMain,
+			(frameEnvironment.timeMillis % 600_000L) / 1000.0f);
+		glUniform1f(uniWeatherDensityMain, config.weatherDensity() / 100.0f);
 
 		// =====================================================
 		// Texture animation tick
@@ -2529,6 +3499,21 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		weatherCameraX = cameraX;
 		weatherCameraY = cameraY;
 		weatherCameraZ = cameraZ;
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			// The client focal point uses X/Y for the ground plane and Z for
+			// elevation; GPU world space uses X/Z for the ground plane and Y
+			// for elevation.
+			atmosphereAnchorX = client.getCameraFocalPointX();
+			atmosphereAnchorY = client.getCameraFocalPointZ();
+			atmosphereAnchorZ = client.getCameraFocalPointY();
+		}
+		else
+		{
+			atmosphereAnchorX = cameraX;
+			atmosphereAnchorY = cameraY;
+			atmosphereAnchorZ = cameraZ;
+		}
 
 		glUniformMatrix4fv(
 				uniEntityProj,
@@ -2581,14 +3566,35 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// Draw custom sky
 		// =====================================================
 
-		if (config.dynamicLighting() && config.dynamicShadows())
+		surfaceShadowMapValid = false;
+		atmosphereShadowMapValid = false;
+		if (config.dynamicShadows())
 		{
-			renderShadowMap(
-					scene,
-					cameraX,
-					cameraY,
-					cameraZ
+			surfaceShadowMapValid = renderLightDepthMap(
+				scene,
+				cameraX,
+				cameraY,
+				cameraZ,
+				shadowFbo,
+				SHADOW_MAP_SIZE,
+				currentShadowLightProj,
+				false
 			);
+		}
+		if (getActiveCelestialRayStrength() > 0.0f)
+		{
+			boolean atmosphereRawMapValid = renderLightDepthMap(
+				scene,
+				atmosphereAnchorX,
+				atmosphereAnchorY,
+				atmosphereAnchorZ,
+				atmosphereShadowFbo,
+				ATMOSPHERE_SHADOW_MAP_SIZE,
+				currentAtmosphereLightProj,
+				true
+			);
+			atmosphereShadowMapValid = atmosphereRawMapValid
+				&& filterAtmosphereShadowMap();
 		}
 
 // Back on normal shader now
@@ -2602,7 +3608,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		glUniform1i(
 				uniShadowsEnabled,
-				config.dynamicLighting() && config.dynamicShadows() ? 1 : 0
+				surfaceShadowMapValid ? 1 : 0
 		);
 
 		glUniform1f(
@@ -2665,6 +3671,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					cameraYaw
 			);
 		}
+		else
+		{
+			activeSkyTexture = 0;
+		}
 	}
 
 	@Override
@@ -2672,7 +3682,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	{
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 		{
-			drawWeather();
+			if (config.materialDebugMode() == MaterialDebugMode.OFF)
+			{
+				drawVolumetricLighting();
+				drawStormAtmosphere();
+				drawWeather();
+			}
 			postDrawToplevel();
 		}
 		else
@@ -2682,10 +3697,542 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 	}
 
+	private void drawSurfaceDetails(Scene scene)
+	{
+		if ((!config.flowingGrass() && !config.terrainDetail())
+			|| glGrassProgram == 0
+			|| vaoGrassHandle == 0
+			|| vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+
+		SceneContext ctx = context(scene);
+		if (ctx == null)
+		{
+			return;
+		}
+
+		float grassRadius = config.grassDistance() * (float) Perspective.LOCAL_TILE_SIZE;
+		float stoneRadius = config.terrainDetailDistance()
+			* (float) Perspective.LOCAL_TILE_SIZE;
+		float maximumRadius = Math.max(
+			config.flowingGrass() ? grassRadius : 0.0f,
+			config.terrainDetail() ? stoneRadius : 0.0f);
+		float grassDensity = config.grassDensity() / 100.0f;
+		float stoneDensity = config.terrainDetailStrength() / 100.0f;
+		int offset = SCENE_OFFSET >> 3;
+		int minimumLevel = Math.max(0, ctx.minLevel);
+		int maximumLevel = Math.min(3, ctx.maxLevel);
+		int instanceCount = 0;
+		grassInstanceBuffer.clear();
+
+		gather:
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized
+					|| zone.surfaceDetailVisibleFrame != grassVisibilityFrame
+					|| zone.surfaceDetailAnchors.length == 0)
+				{
+					continue;
+				}
+
+				float baseX = (zx - offset) << 10;
+				float baseZ = (zz - offset) << 10;
+				float zoneCenterX = baseX + 512.0f;
+				float zoneCenterZ = baseZ + 512.0f;
+				float zoneCullRadius = maximumRadius + 724.0f;
+				float zoneDx = zoneCenterX - atmosphereAnchorX;
+				float zoneDz = zoneCenterZ - atmosphereAnchorZ;
+				if (zoneDx * zoneDx + zoneDz * zoneDz
+					> zoneCullRadius * zoneCullRadius)
+				{
+					continue;
+				}
+
+				for (int level = minimumLevel; level <= maximumLevel; ++level)
+				{
+					int start = level == 0 ? 0
+						: zone.surfaceDetailLevelOffsets[level - 1];
+					int end = Math.min(zone.surfaceDetailLevelOffsets[level],
+						zone.surfaceDetailAnchors.length);
+					for (int anchor = start; anchor + 5 < end;
+						anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
+					{
+						float seed = zone.surfaceDetailAnchors[anchor + 3];
+						boolean grassDetail = zone.surfaceDetailAnchors[anchor + 5] < 0.5f;
+						boolean enabled = grassDetail
+							? config.flowingGrass() : config.terrainDetail();
+						float density = grassDetail ? grassDensity : stoneDensity;
+						float drawRadius = grassDetail ? grassRadius : stoneRadius;
+						if (!enabled || seed > density)
+						{
+							continue;
+						}
+
+						float worldX = baseX + zone.surfaceDetailAnchors[anchor];
+						float worldZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
+						float dx = worldX - atmosphereAnchorX;
+						float dz = worldZ - atmosphereAnchorZ;
+						if (dx * dx + dz * dz > drawRadius * drawRadius)
+						{
+							continue;
+						}
+
+						grassInstanceBuffer.put(worldX);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 1]);
+						grassInstanceBuffer.put(worldZ);
+						grassInstanceBuffer.put(seed);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 5]);
+						if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+						{
+							break gather;
+						}
+					}
+				}
+			}
+		}
+
+		if (instanceCount == 0)
+		{
+			return;
+		}
+
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			(long) MAX_SURFACE_DETAIL_INSTANCES
+				* SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES,
+			GL_STREAM_DRAW);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+
+		long now = frameEnvironment.timeMillis;
+		if (grassTimeOriginMillis < 0L)
+		{
+			grassTimeOriginMillis = now;
+		}
+		WeatherMode weather = config.weatherMode();
+		// Procedural grass has no stock RuneLite vertex color, so it keeps a small
+		// material-local wrapped light response derived from the shared environment.
+		// This does not relight any existing world surface.
+		float direct = 0.55f + (0.16f - 0.55f) * frameEnvironment.nightFactor;
+		float ambient = 0.46f + (0.30f - 0.46f) * frameEnvironment.nightFactor;
+		if (weather == WeatherMode.STORM)
+		{
+			direct *= 0.35f;
+			ambient *= 0.82f;
+		}
+		else if (weather == WeatherMode.BLIZZARD)
+		{
+			direct *= 0.25f;
+			ambient *= 0.88f;
+		}
+		else if (weather == WeatherMode.RAIN || weather == WeatherMode.SNOW)
+		{
+			direct *= 0.72f;
+		}
+		float wind = config.grassWindStrength() / 100.0f
+			* (0.90f + Math.abs(config.weatherWind()) / 100.0f * 0.35f);
+		if (config.weatherWind() < 0)
+		{
+			wind = -wind;
+		}
+		float[] lightDirection = getActiveSceneLightDirection();
+		boolean grassShadowMapValid = surfaceShadowMapValid
+			&& shadowDepthTexture != 0;
+
+		glUseProgram(glGrassProgram);
+		glUniformMatrix4fv(uniGrassProjection, false, weatherProjection);
+		glUniform3f(uniGrassCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform3f(uniGrassFocus, atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ);
+		glUniform1f(uniGrassTime,
+			(now - grassTimeOriginMillis) / 1000.0f);
+		glUniform2f(uniGrassDrawRadius, grassRadius, stoneRadius);
+		glUniform1f(uniGrassHeightScale, 1.0f);
+		glUniform1f(uniGrassWindStrength, wind);
+		glUniform1i(uniGrassWeatherModeVert, weather.ordinal());
+		glUniform3f(uniGrassLightDirection,
+			lightDirection[0], lightDirection[1], lightDirection[2]);
+		glUniform1f(uniGrassLightIntensity, direct);
+		glUniform1f(uniGrassAmbientLight, ambient);
+		glUniform1f(uniGrassLightningFlash,
+			weather == WeatherMode.STORM ? getLightningFlash(now) : 0.0f);
+		glUniform1i(uniGrassWeatherModeFrag, weather.ordinal());
+		glUniform1f(uniGrassNightFactor, frameEnvironment.nightFactor);
+		glUniform1f(uniGrassBrightness,
+			(float) client.getTextureProvider().getBrightness());
+		glUniform1i(uniGrassEnhancedColors,
+			config.enhancedColors() ? 1 : 0);
+		glUniform1f(uniGrassSaturation,
+			1.0f + (config.saturation() - 100) / 50.0f);
+		glUniform1f(uniGrassContrast,
+			1.0f + (config.contrast() - 100) / 50.0f);
+		glUniform4f(uniGrassFogColor,
+			currentFogR, currentFogG, currentFogB, 1.0f);
+		glUniformMatrix4fv(uniGrassShadowLightProj,
+			false, currentShadowLightProj);
+		glUniform1i(uniGrassShadowsEnabled,
+			grassShadowMapValid ? 1 : 0);
+		glUniform1f(uniGrassShadowStrength,
+			config.shadowStrength() / 100.0f);
+		glUniform1i(uniGrassMaterialDebugMode, config.materialDebugMode().getId());
+		glUniform1i(uniGrassWetSurfacesEnabled, config.wetSurfaces() ? 1 : 0);
+		glUniform1f(uniGrassWetSurfaceStrength,
+			config.wetSurfaceStrength() / 100.0f);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+		glUniform1i(uniGrassShadowMap, 5);
+
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassHandle);
+		glDrawArraysInstanced(GL_TRIANGLES, 0,
+			SURFACE_DETAIL_VERTICES_PER_INSTANCE, instanceCount);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		restoreSceneRenderState();
+	}
+
+	private boolean advancedWaterEnabled(Scene scene)
+	{
+		return scene.getWorldViewId() == WorldView.TOPLEVEL
+			&& config.enhancedWater()
+			&& glWaterProgram != 0
+			&& fboScene != -1
+			&& fboSceneResolved != -1
+			&& sceneColorTexture != 0
+			&& sceneDepthTexture != 0
+			&& sceneTargetWidth > 0
+			&& sceneTargetHeight > 0;
+	}
+
+	/**
+	 * Composite deferred terrain water over a resolved snapshot of the opaque
+	 * scene. Water writes its own depth afterward so RuneLite's normal alpha pass
+	 * continues to sort fences, foliage, and other transparent geometry correctly.
+	 */
+	private void drawAdvancedWater(Scene scene)
+	{
+		if (!advancedWaterEnabled(scene))
+		{
+			return;
+		}
+
+		SceneContext ctx = context(scene);
+		if (ctx == null)
+		{
+			return;
+		}
+
+		boolean hasVisibleWater = false;
+		for (int zx = 0; zx < ctx.sizeX && !hasVisibleWater; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (zone.initialized
+					&& zone.waterVisibleFrame == grassVisibilityFrame
+					&& zone.hasWater())
+				{
+					hasVisibleWater = true;
+					break;
+				}
+			}
+		}
+		if (!hasVisibleWater)
+		{
+			return;
+		}
+
+		glGetIntegerv(GL_VIEWPORT, sceneViewport);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, fboScene);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneResolved);
+		glBlitFramebuffer(
+			0, 0, sceneTargetWidth, sceneTargetHeight,
+			0, 0, sceneTargetWidth, sceneTargetHeight,
+			GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
+			GL_NEAREST);
+		glBindFramebuffer(GL_FRAMEBUFFER, fboScene);
+
+		long now = frameEnvironment.timeMillis;
+		WeatherMode weather = config.weatherMode();
+		float nightFactor = frameEnvironment.nightFactor;
+		float[] lightDirection = getActiveLightDirection();
+		boolean shadowMapValid = surfaceShadowMapValid && shadowDepthTexture != 0;
+
+		glUseProgram(glWaterProgram);
+		glUniformMatrix4fv(uniWaterProjection, false, weatherProjection);
+		glUniformMatrix4fv(uniWaterWorldProjection, false, weatherProjection);
+		glUniformMatrix4fv(uniWaterShadowLightProj, false, currentShadowLightProj);
+		glUniform4f(uniWaterUvTransform,
+			sceneViewport[0] / (float) sceneTargetWidth,
+			sceneViewport[1] / (float) sceneTargetHeight,
+			sceneViewport[2] / (float) sceneTargetWidth,
+			sceneViewport[3] / (float) sceneTargetHeight);
+		glUniform2f(uniWaterTargetSize, sceneTargetWidth, sceneTargetHeight);
+		glUniform3f(uniWaterCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform3f(uniWaterLightDirection,
+			lightDirection[0], lightDirection[1], lightDirection[2]);
+		glUniform3f(uniWaterFogColor, currentFogR, currentFogG, currentFogB);
+		glUniform1f(uniWaterTime, (now % 600_000L) / 1000.0f);
+		glUniform1f(uniWaterPassStrength, config.waterStrength() / 100.0f);
+		glUniform1f(uniWaterPassOpacity, config.waterOpacity() / 100.0f);
+		glUniform1f(uniWaterDrawDistance, currentDrawDistance);
+		glUniform1f(uniWaterNightFactor, nightFactor);
+		glUniform1f(uniWaterLightningFlash,
+			weather == WeatherMode.STORM ? getLightningFlash(now) : 0.0f);
+		glUniform1f(uniWaterWeatherDensity, config.weatherDensity() / 100.0f);
+		glUniform1i(uniWaterWeatherMode, weather.ordinal());
+		glUniform1i(uniWaterShadowMapValid, shadowMapValid ? 1 : 0);
+		glUniform1i(uniWaterZeroToOneDepth, glCapabilities.OpenGL45 ? 1 : 0);
+		glUniform1i(uniWaterSkyReflectionEnabled, activeSkyTexture != 0 ? 1 : 0);
+		glUniform1i(uniWaterMaterialDebugMode, config.materialDebugMode().getId());
+
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, sceneColorTexture);
+		glUniform1i(uniWaterSceneColor, 3);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, sceneDepthTexture);
+		glUniform1i(uniWaterSceneDepth, 4);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+		glUniform1i(uniWaterShadowMap, 5);
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, activeSkyTexture);
+		glUniform1i(uniWaterSkyTexture, 6);
+
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glEnable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+
+		int offset = SCENE_OFFSET >> 3;
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized
+					|| zone.waterVisibleFrame != grassVisibilityFrame
+					|| !zone.hasWater())
+				{
+					continue;
+				}
+
+				zone.renderWater(zx - offset, zz - offset,
+					ctx.minLevel, ctx.level, ctx.maxLevel,
+					ctx.hideRoofIds, uniWaterBase);
+			}
+		}
+
+		glBindVertexArray(0);
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		restoreSceneRenderState();
+	}
+
+	private void drawStormAtmosphere()
+	{
+		WeatherMode mode = config.weatherMode();
+		boolean blizzard = mode == WeatherMode.BLIZZARD;
+		if ((mode != WeatherMode.STORM && !blizzard)
+			|| glAtmosphereProgram == 0
+			|| config.stormAtmosphereDensity() == 0)
+		{
+			return;
+		}
+
+		float density = config.stormAtmosphereDensity() / 100.0f;
+		int puffs = Ints.constrainToRange(
+			Math.round((blizzard ? 150.0f : 96.0f) * density),
+			1,
+			blizzard ? 256 : 192);
+		long now = frameEnvironment.timeMillis;
+
+		glUseProgram(glAtmosphereProgram);
+		glUniformMatrix4fv(uniAtmosphereProjection, false, weatherProjection);
+		glUniform3f(uniAtmosphereCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform3f(uniAtmosphereAnchor, atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ);
+		glUniform1f(uniAtmosphereTime, (now % 600_000L) / 1000.0f);
+		glUniform1f(uniAtmosphereRadius, blizzard ? 2500.0f : 2250.0f);
+		glUniform1f(uniAtmosphereWind,
+			config.weatherWind() * (blizzard ? 2.8f : 1.0f));
+		glUniform1f(uniAtmosphereDensity, density);
+		glUniform1i(uniAtmosphereBlizzard, blizzard ? 1 : 0);
+		glUniform1f(uniAtmosphereLightning,
+			mode == WeatherMode.STORM ? getLightningFlash(now) : 0.0f);
+		float[] lightDirection = getActiveLightDirection();
+		glUniform3f(uniAtmosphereLightDirection,
+			lightDirection[0], lightDirection[1], lightDirection[2]);
+		glUniform1f(uniAtmosphereNightFactor, frameEnvironment.nightFactor);
+
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(false);
+		glDisable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+		glBindVertexArray(vaoSkyHandle);
+		glDrawArrays(GL_TRIANGLES, 0, puffs * 6);
+
+		restoreSceneRenderState();
+	}
+
+	private void drawVolumetricLighting()
+	{
+		SkyMode sky = getEnvironmentSkyMode();
+		float activeRayStrength = getActiveCelestialRayStrength();
+		if (activeRayStrength <= 0.0f
+			|| sky == SkyMode.OFF
+			|| glVolumetricProgram == 0
+			|| glVolumetricCompositeProgram == 0
+			|| fboSceneResolved == -1
+			|| sceneColorTexture == 0
+			|| sceneDepthTexture == 0
+			|| fboVolumetric == -1
+			|| volumetricTexture == 0
+			|| sceneTargetWidth <= 0
+			|| sceneTargetHeight <= 0
+			|| volumetricTargetWidth <= 0
+			|| volumetricTargetHeight <= 0
+			|| atmosphereFilteredShadowDepthTexture == 0)
+		{
+			return;
+		}
+
+		glGetIntegerv(GL_VIEWPORT, sceneViewport);
+
+		// Snapshot the complete world after water and alpha geometry. Both celestial
+		// profiles use the same independent half-resolution atmospheric target; the
+		// source no longer needs to be visible on screen.
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, fboScene);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneResolved);
+		glBlitFramebuffer(
+			0, 0, sceneTargetWidth, sceneTargetHeight,
+			0, 0, sceneTargetWidth, sceneTargetHeight,
+			GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT,
+			GL_NEAREST);
+		// Stretched mode deliberately adds one pixel of negative viewport padding.
+		// Java division truncates toward zero, so use floor/ceil division explicitly
+		// to keep the half-resolution target aligned at those negative origins.
+		int rayX = halfResolutionViewportOrigin(sceneViewport[0]);
+		int rayY = halfResolutionViewportOrigin(sceneViewport[1]);
+		int rayWidth = halfResolutionViewportExtent(
+			sceneViewport[0], sceneViewport[2]);
+		int rayHeight = halfResolutionViewportExtent(
+			sceneViewport[1], sceneViewport[3]);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, fboVolumetric);
+		glViewport(rayX, rayY, rayWidth, rayHeight);
+
+		glUseProgram(glVolumetricProgram);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, sceneColorTexture);
+		glUniform1i(uniVolumetricSceneColor, 3);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, sceneDepthTexture);
+		glUniform1i(uniVolumetricSceneDepth, 4);
+		glUniform4f(uniVolumetricUvTransform,
+			sceneViewport[0] / (float) sceneTargetWidth,
+			sceneViewport[1] / (float) sceneTargetHeight,
+			sceneViewport[2] / (float) sceneTargetWidth,
+			sceneViewport[3] / (float) sceneTargetHeight);
+		glUniform2f(uniVolumetricCelestialRayStrength,
+			getSunRayStrength(), getMoonRayStrength());
+		glUniform1f(uniVolumetricMoonProfile,
+			isMoonEnvironment(sky) ? 1.0f : 0.0f);
+		glUniform1i(uniVolumetricWeatherMode, config.weatherMode().ordinal());
+		glUniformMatrix4fv(uniVolumetricWorldProjection, false, weatherProjection);
+		glUniform3f(uniVolumetricCamera,
+			weatherCameraX, weatherCameraY, weatherCameraZ);
+		float[] lightDirection = getActiveSceneLightDirection();
+		glUniform3f(uniVolumetricLightDirection,
+			lightDirection[0], lightDirection[1], lightDirection[2]);
+		setEnvironmentRayColor(uniVolumetricRayColor);
+		glUniformMatrix4fv(uniVolumetricShadowLightProj,
+			false, currentAtmosphereLightProj);
+
+		boolean shadowMapValid = atmosphereShadowMapValid
+			&& atmosphereFilteredShadowDepthTexture != 0;
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, atmosphereFilteredShadowDepthTexture);
+		glUniform1i(uniVolumetricShadowMap, 5);
+		glUniform1i(uniVolumetricShadowMapValid, shadowMapValid ? 1 : 0);
+		glUniform1i(uniVolumetricZeroToOneDepth,
+			glCapabilities.OpenGL45 ? 1 : 0);
+
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(false);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoSkyHandle);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, fboScene);
+		glViewport(
+			sceneViewport[0], sceneViewport[1],
+			sceneViewport[2], sceneViewport[3]);
+		glUseProgram(glVolumetricCompositeProgram);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, sceneColorTexture);
+		glUniform1i(uniVolumetricCompositeSceneColor, 3);
+		glUniform1i(uniVolumetricCompositeSceneDepth, 4);
+		glUniform4f(uniVolumetricCompositeSceneUvTransform,
+			sceneViewport[0] / (float) sceneTargetWidth,
+			sceneViewport[1] / (float) sceneTargetHeight,
+			sceneViewport[2] / (float) sceneTargetWidth,
+			sceneViewport[3] / (float) sceneTargetHeight);
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, volumetricTexture);
+		glUniform1i(uniVolumetricCompositeRays, 6);
+		glUniform4f(uniVolumetricCompositeRayUvTransform,
+			rayX / (float) volumetricTargetWidth,
+			rayY / (float) volumetricTargetHeight,
+			rayWidth / (float) volumetricTargetWidth,
+			rayHeight / (float) volumetricTargetHeight);
+		glUniform2f(uniVolumetricCompositeRayTexelSize,
+			1.0f / volumetricTargetWidth,
+			1.0f / volumetricTargetHeight);
+		glBindVertexArray(vaoSkyHandle);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		glActiveTexture(GL_TEXTURE6);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE3);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		glViewport(
+			sceneViewport[0], sceneViewport[1],
+			sceneViewport[2], sceneViewport[3]);
+		restoreSceneRenderState();
+	}
+
 	private void drawWeather()
 	{
 		WeatherMode mode = config.weatherMode();
-		updateWeatherAudio(mode, System.currentTimeMillis());
+		long now = frameEnvironment.timeMillis;
+		updateWeatherAudio(mode, now);
 		if (mode == WeatherMode.CLEAR || glWeatherProgram == 0)
 		{
 			return;
@@ -2694,19 +4241,30 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		boolean snow = mode == WeatherMode.SNOW || mode == WeatherMode.BLIZZARD;
 		boolean severe = mode == WeatherMode.STORM || mode == WeatherMode.BLIZZARD;
 		boolean storm = mode == WeatherMode.STORM;
-		int particles = (storm ? 96000 : severe ? 65000 : 28000) * config.weatherDensity() / 100;
+		int baseParticles = storm ? 96000
+			: mode == WeatherMode.BLIZZARD ? 165000
+				: snow ? 52000 : 28000;
+		int particles = baseParticles * config.weatherDensity() / 100;
 		glUseProgram(glWeatherProgram);
 		glUniformMatrix4fv(uniWeatherProjection, false, weatherProjection);
 		glUniform3f(uniWeatherCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
-		glUniform1f(uniWeatherTime, (System.currentTimeMillis() % 600_000L) / 1000.0f);
-		glUniform1f(uniWeatherRadius, storm ? 1550.0f : severe ? 1750.0f : 1950.0f);
-		glUniform1f(uniWeatherFallSpeed, snow ? (severe ? 210.0f : 135.0f) : (storm ? 2400.0f : 1250.0f));
-		glUniform1f(uniWeatherWind, config.weatherWind() * (severe ? 4.0f : 2.2f));
+		glUniform1f(uniWeatherTime, (now % 600_000L) / 1000.0f);
+		glUniform1f(uniWeatherRadius,
+			storm ? 1550.0f : mode == WeatherMode.BLIZZARD ? 1550.0f : 1950.0f);
+		glUniform1f(uniWeatherFallSpeed,
+			snow ? (mode == WeatherMode.BLIZZARD ? 295.0f : 150.0f)
+				: (storm ? 2400.0f : 1250.0f));
+		glUniform1f(uniWeatherWind, config.weatherWind()
+			* (mode == WeatherMode.BLIZZARD ? 4.5f : severe ? 4.0f : 2.2f));
 		glUniform1f(uniWeatherStreakLength, storm ? 255.0f : severe ? 210.0f : 145.0f);
 		glUniform1i(uniWeatherSnow, snow ? 1 : 0);
 		glUniform1i(uniWeatherStorm, storm ? 1 : 0);
-		float flash = severe ? getLightningFlash(System.currentTimeMillis()) : 0.0f;
-		glUniform1f(uniWeatherIntensity, (storm ? 0.82f : severe ? 0.72f : 0.48f) + flash * 0.28f);
+		glUniform1i(uniWeatherSevere, severe ? 1 : 0);
+		float flash = storm ? getLightningFlash(now) : 0.0f;
+		float precipitationIntensity = storm ? 0.82f
+			: mode == WeatherMode.BLIZZARD ? 0.88f : 0.48f;
+		glUniform1f(uniWeatherIntensity,
+			precipitationIntensity + flash * 0.28f);
 
 		glEnable(GL_DEPTH_TEST);
 		glDepthMask(false);
@@ -2719,13 +4277,27 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 		glBindVertexArray(vaoSkyHandle);
 		glDrawArrays(snow ? GL_POINTS : GL_LINES, 0, snow ? particles : particles * 2);
-		glBindVertexArray(0);
 		if (snow)
 		{
 			glDisable(GL_PROGRAM_POINT_SIZE);
 		}
+		restoreSceneRenderState();
+	}
+
+	private void restoreSceneRenderState()
+	{
+		glBindVertexArray(0);
 		glDepthMask(true);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
 		glEnable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendFuncSeparate(
+			GL_SRC_ALPHA,
+			GL_ONE_MINUS_SRC_ALPHA,
+			GL_ONE,
+			GL_ONE
+		);
 		glUseProgram(glProgram);
 	}
 
@@ -2734,7 +4306,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		boolean enabled = config.weatherSounds();
 		int volume = config.weatherVolume();
 		weatherAudio.update(mode, enabled, volume);
-		boolean lightningWeather = mode == WeatherMode.STORM || mode == WeatherMode.BLIZZARD;
+		boolean lightningWeather = mode == WeatherMode.STORM;
 		long cycle = now / 11_000L;
 		long phase = now % 11_000L;
 		if (enabled && lightningWeather && phase < 85L && cycle != lastThunderCycle)
@@ -2825,9 +4397,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			return;
 		}
-
 		int offset = scene.getWorldViewId() == WorldView.TOPLEVEL ? (SCENE_OFFSET >> 3) : 0;
-		z.renderOpaque(zx - offset, zz - offset, ctx.minLevel, ctx.level, ctx.maxLevel, ctx.hideRoofIds);
+		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
+		{
+			z.surfaceDetailVisibleFrame = grassVisibilityFrame;
+			z.waterVisibleFrame = grassVisibilityFrame;
+		}
+		// Static zone geometry is submitted immediately rather than through the
+		// PASS_OPAQUE dynamic buffer. Render it by replacement: deferred water uses
+		// the resolved scene alpha to distinguish its generated seabed, and blending
+		// here would both erase that marker and mix opaque terrain with the sky.
+		glDisable(GL_BLEND);
+		z.renderOpaque(zx - offset, zz - offset, ctx.minLevel, ctx.level,
+			ctx.maxLevel, ctx.hideRoofIds, advancedWaterEnabled(scene));
 
 		checkGLErrors();
 	}
@@ -2879,10 +4461,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 			{
+				// Dynamic opaque geometry accumulated during scene traversal follows the
+				// same replacement rule as the static zone draws above.
+				glDisable(GL_BLEND);
 				for (int i = 0; i < rts.length; ++i) // NOPMD: ForLoopCanBeForeach
 				{
 					rts[i].vaoO.draw();
 				}
+				drawSurfaceDetails(scene);
+				drawAdvancedWater(scene);
+				restoreSceneRenderState();
 			}
 			else
 			{
@@ -2902,6 +4490,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 		else if (pass == DrawCallbacks.PRE_PASS_ALPHA)
 		{
+			// Opaque zone submissions deliberately leave blending disabled. Reassert
+			// the normal scene state before any nested or top-level alpha geometry.
+			restoreSceneRenderState();
 			for (int i = 0; i < rts.length; ++i)
 			{
 				rts[i].vaoA.unmap();
@@ -3212,7 +4803,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		// Texture on UI
 		drawUi(overlayColor, canvasHeight, canvasWidth);
 
-		if (config.shadowDebug() && config.dynamicLighting() && config.dynamicShadows())
+		if (config.materialDebugMode() == MaterialDebugMode.OFF
+			&& config.shadowDebug() && surfaceShadowMapValid)
 		{
 			drawShadowDebug();
 		}
@@ -3468,13 +5060,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				rainSkyTextures[i] = 0;
 			}
 		}
-		for (int i = 0; i < snowSkyTextures.length; ++i)
+		if (snowSkyTexture != 0)
 		{
-			if (snowSkyTextures[i] != 0)
-			{
-				glDeleteTextures(snowSkyTextures[i]);
-				snowSkyTextures[i] = 0;
-			}
+			glDeleteTextures(snowSkyTexture);
+			snowSkyTexture = 0;
 		}
 		for (int i = 0; i < lightningSkyTextures.length; ++i)
 		{
