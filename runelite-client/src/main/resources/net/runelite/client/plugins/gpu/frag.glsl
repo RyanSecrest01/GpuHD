@@ -19,7 +19,6 @@ uniform float brightness;
 uniform float smoothBanding;
 uniform vec4 fogColor;
 uniform float textureLightMode;
-uniform float textureClarity;
 
 // ========================================================
 // Enhanced colors
@@ -43,6 +42,7 @@ uniform float lightningFlash;
 uniform int weatherMode;
 uniform float weatherTime;
 uniform float celestialNightFactor;
+uniform float polygonDefinition;
 uniform int tick;
 
 uniform sampler2D shadowMap;
@@ -147,19 +147,11 @@ void main()
             sampleUv += vec2(waveA, waveB) * 0.006 * clamp(waterStrength, 0.0, 2.0);
         }
 
-        // A small negative implicit-LOD bias keeps oblique 128px RuneLite
-        // textures from becoming prematurely soft. It is world-texture-local;
-        // later fog blending and animated water remain untouched.
-        float clarityAmount = waterSurface
-            ? 0.0 : clamp(textureClarity, 0.0, 1.0);
-        float textureLodBias = -0.35 * clarityAmount;
-
-        vec4 textureColor =
-            texture(
-                textures,
-                vec3(sampleUv, float(textureIdx)),
-                textureLodBias
-            );
+		vec4 textureColor =
+			texture(
+				textures,
+				vec3(sampleUv, float(textureIdx))
+			);
 
         vec4 textureColor0 =
             textureLod(
@@ -498,6 +490,29 @@ void main()
 		float broadSpecular = pow(broadAlignment, 18.0);
 		float sharpSpecular = pow(sharpAlignment, 72.0);
 		float materialNdotL = max(dot(broadNormal, materialLightDir), 0.0);
+
+		// Optional low-poly definition inspired by 117 HD's flat-shading mode.
+		// The derivative normal is constant across a triangle, but this effect only
+		// adds a bounded lift to light-facing geometry. It never darkens stock color,
+		// draws outlines, or changes the texture/vertex-color interpolation.
+		float definitionAmount = clamp(polygonDefinition, 0.0, 1.0);
+		if (definitionAmount > 0.0)
+		{
+			float faceNdotL = max(dot(materialNormal, materialLightDir), 0.0);
+			float faceResponse = smoothstep(0.10, 0.90, faceNdotL);
+			float blockerVisibility = 1.0 - worldShadowOcclusion;
+			float environmentStrength = mix(
+				1.0, 0.45, celestialNightFactor);
+			float opaqueGate = smoothstep(0.92, 1.0, c.a);
+			float desiredGain = 0.14 * definitionAmount
+				* faceResponse * blockerVisibility
+				* environmentStrength * opaqueGate;
+			float maximumChannel = max(c.r, max(c.g, c.b));
+			float headroomGain = (1.0 - maximumChannel)
+				/ max(maximumChannel, 1e-4);
+			c.rgb *= 1.0 + min(desiredGain, max(headroomGain, 0.0));
+		}
+
 		// Shadow strength is an artistic control for diffuse transmission; direct
 		// celestial glints still disappear behind a real geometric blocker.
 		float directVisibility = (1.0 - worldShadowOcclusion)

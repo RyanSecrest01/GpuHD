@@ -367,12 +367,12 @@ public interface GpuPluginConfig extends Config
 		max = 100
 	)
 	@ConfigItem(
-		keyName = "textureClarity",
-		name = "Texture clarity",
-		description = "Preserves fine world-texture detail without sharpening UI, water, fog, or lighting effects.",
+		keyName = "polygonDefinition",
+		name = "Polygon definition",
+		description = "Adds restrained light-facing definition to models and sloped tiles without outlining polygon borders.",
 		position = 18
 	)
-	default int textureClarity()
+	default int polygonDefinition()
 	{
 		return 35;
 	}
@@ -401,32 +401,6 @@ public interface GpuPluginConfig extends Config
 	default int shadowStrength()
 	{
 		return 40;
-	}
-
-	@ConfigItem(
-			keyName = "godRays",
-			name = "Celestial rays",
-			description = "Adds clean sun and moon shafts using a separate coarse blocker map. Surface shadows are unaffected.",
-			position = 23
-	)
-	default boolean godRays()
-	{
-		return true;
-	}
-
-	@Range(
-			min = 0,
-			max = 200
-	)
-	@ConfigItem(
-			keyName = "godRaysStrength",
-			name = "Celestial ray strength",
-			description = "Controls directional sun and moon shaft intensity.",
-			position = 24
-	)
-	default int godRaysStrength()
-	{
-		return 75;
 	}
 
 	@ConfigItem(

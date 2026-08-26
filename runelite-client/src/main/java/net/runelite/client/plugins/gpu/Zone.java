@@ -352,22 +352,6 @@ class Zone
 		}
 	}
 
-	void renderVisibleShadow(
-			int zx,
-			int zz,
-			int minLevel,
-			int currentLevel,
-			int maxLevel,
-			Set<Integer> hiddenRoofIds,
-			int shadowBaseUniform)
-	{
-		drawOff.clear();
-		drawEnd.clear();
-		pushVisibleShadowRanges(
-			minLevel, currentLevel, maxLevel, hiddenRoofIds);
-		drawShadowRanges(zx, zz, shadowBaseUniform);
-	}
-
 	void renderRoofDominantShadow(
 			int zx,
 			int zz,
@@ -391,57 +375,6 @@ class Zone
 			glUniform3i(shadowBaseUniform, zx << 10, 0, zz << 10);
 			glBindVertexArray(glVao);
 			glMultiDrawArrays(GL_TRIANGLES, drawOff, drawEnd);
-		}
-	}
-
-	private void pushVisibleShadowRanges(
-			int minLevel,
-			int currentLevel,
-			int maxLevel,
-			Set<Integer> hiddenRoofIds)
-	{
-		/*
-		 * Surface shadows must match RuneLite's visible scene. Invisible roofs are
-		 * useful as broad atmospheric blockers, but letting them cast into the
-		 * detailed map blankets interiors and nearby terrain with unseen geometry.
-		 */
-		for (int level = minLevel; level <= maxLevel; ++level)
-		{
-			int[] levelRoofIds = rids[level];
-			int[] levelRoofStarts = roofStart[level];
-			int[] levelRoofEnds = roofEnd[level];
-
-			if (levelRoofIds.length == 0
-				|| hiddenRoofIds.isEmpty()
-				|| level <= currentLevel)
-			{
-				int start = level == 0 ? 0 : levelOffsets[level - 1];
-				pushRange(start, levelOffsets[level]);
-				continue;
-			}
-
-			for (int roofIndex = 0; roofIndex < levelRoofIds.length; ++roofIndex)
-			{
-				int roofId = levelRoofIds[roofIndex];
-				if (roofId > 0 && !hiddenRoofIds.contains(roofId))
-				{
-					pushRange(
-						levelRoofStarts[roofIndex],
-						levelRoofEnds[roofIndex]);
-				}
-			}
-
-			int nonRoofStart = level == 0 ? 0 : levelOffsets[level - 1];
-			for (int roofIndex = levelRoofIds.length - 1;
-				roofIndex >= 0; --roofIndex)
-			{
-				if (levelRoofIds[roofIndex] > 0)
-				{
-					nonRoofStart = levelRoofEnds[roofIndex];
-					break;
-				}
-			}
-			pushRange(nonRoofStart, levelOffsets[level]);
 		}
 	}
 

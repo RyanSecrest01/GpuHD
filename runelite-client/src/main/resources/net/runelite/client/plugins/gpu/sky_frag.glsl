@@ -7,10 +7,11 @@ out vec4 fragColor;
 uniform samplerCube skyTexture;
 uniform float celestialVisibility;
 uniform vec3 sunDirection;
-uniform vec3 rayColor;
-uniform float rayStrength;
+uniform vec3 celestialGlowColor;
 uniform float nightFactor;
 uniform vec3 moonDirection;
+
+const float CELESTIAL_GLOW_STRENGTH = 0.75;
 
 float ellipseMask(vec2 point, vec2 center, vec2 radii)
 {
@@ -33,20 +34,19 @@ void main()
 		2.0 * (1.0 - clamp(sunAlignment, -1.0, 1.0)), 0.0));
 	float moonRadius = sqrt(max(
 		2.0 * (1.0 - clamp(moonAlignment, -1.0, 1.0)), 0.0));
-	float strength = clamp(rayStrength, 0.0, 1.45);
 	float dayVisibility = (1.0 - nightFactor) * celestialVisibility;
 
 	// Screen-blended Gaussian glare stays smooth and visible even when celestial
-	// rays are disabled. It is radial only: no repeated spokes or angular cookie.
+	// shafts are absent. It is radial only: no repeated spokes or angular cookie.
 	float sunDisc = 1.0 - smoothstep(0.066, 0.076, sunRadius);
 	float sunLimb = smoothstep(0.043, 0.070, sunRadius);
 	float tightGlare = exp2(-sunRadius * sunRadius * 180.0);
 	float wideGlare = exp2(-sunRadius * sunRadius * 18.0);
-	float glareResponse = 0.72 + strength * 0.22;
+	float glareResponse = 0.72 + CELESTIAL_GLOW_STRENGTH * 0.22;
 	float glareEnergy = (tightGlare * 0.26 + wideGlare * 0.075)
 		* glareResponse * dayVisibility;
 	vec3 sunGlareColor = mix(
-		vec3(1.0, 0.72, 0.28), rayColor, 0.25);
+		vec3(1.0, 0.72, 0.28), celestialGlowColor, 0.25);
 	skyColor += clamp(vec3(1.0) - skyColor, 0.0, 1.0)
 		* sunGlareColor * glareEnergy;
 
@@ -97,7 +97,7 @@ void main()
 	float moonOuterAura = exp(-moonRadius * 10.0);
 	vec3 moonBloom = vec3(0.38, 0.50, 0.78)
 		* (moonInnerAura * 0.15 + moonOuterAura * 0.045)
-		* strength * nightFactor * celestialVisibility;
+		* CELESTIAL_GLOW_STRENGTH * nightFactor * celestialVisibility;
 	skyColor += moonBloom * clamp(
 		vec3(1.0) - skyColor * 0.55, 0.16, 1.0);
 
