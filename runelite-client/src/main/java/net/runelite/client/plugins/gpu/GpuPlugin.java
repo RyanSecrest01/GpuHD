@@ -226,6 +226,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniEnhancedColors;
 	private int uniSaturation;
 	private int uniContrast;
+	private int uniTextureClarity;
 
 	private int uniShadowLightProj;
 	private int uniShadowBase;
@@ -1401,6 +1402,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniShadowBase = glGetUniformLocation(glShadowProgram, "base");
 		uniSaturation = glGetUniformLocation(glProgram, "saturation");
 		uniContrast = glGetUniformLocation(glProgram, "contrast");
+		uniTextureClarity = glGetUniformLocation(glProgram, "textureClarity");
 		uniLightDirection = glGetUniformLocation(glProgram, "lightDirection");
 		uniCameraPosition = glGetUniformLocation(glProgram, "cameraPosition");
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
@@ -3034,6 +3036,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform1f(
 				uniTextureLightMode,
 				config.brightTextures() ? 1f : 0f
+		);
+
+		glUniform1f(
+				uniTextureClarity,
+				Math.max(0f, Math.min(1f, config.textureClarity() / 100f))
 		);
 
 		// =====================================================

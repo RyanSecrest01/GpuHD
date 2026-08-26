@@ -209,12 +209,12 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 		keyName = "anisotropicFilteringLevel",
 		name = "Anisotropic filtering",
-		description = "Configures the anisotropic filtering level.",
+		description = "Preserves texture detail when terrain and roofs are viewed at an angle.",
 		position = 7
 	)
 	default int anisotropicFilteringLevel()
 	{
-		return 1;
+		return 16;
 	}
 
 	@ConfigItem(
@@ -360,6 +360,21 @@ public interface GpuPluginConfig extends Config
 	default int contrast()
 	{
 		return 104;
+	}
+
+	@Range(
+		min = 0,
+		max = 100
+	)
+	@ConfigItem(
+		keyName = "textureClarity",
+		name = "Texture clarity",
+		description = "Preserves fine world-texture detail without sharpening UI, water, fog, or lighting effects.",
+		position = 18
+	)
+	default int textureClarity()
+	{
+		return 35;
 	}
 
 	@ConfigItem(

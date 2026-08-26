@@ -19,6 +19,7 @@ uniform float brightness;
 uniform float smoothBanding;
 uniform vec4 fogColor;
 uniform float textureLightMode;
+uniform float textureClarity;
 
 // ========================================================
 // Enhanced colors
@@ -100,6 +101,27 @@ vec3 stableSurfaceNormal()
 		: vec3(0.0, 1.0, 0.0);
 }
 
+vec3 fitColorToGamut(vec3 color, float luminance)
+{
+	vec3 chroma = color - vec3(luminance);
+	float chromaScale = 1.0;
+
+	if (chroma.r > 1e-5)
+		chromaScale = min(chromaScale, (1.0 - luminance) / chroma.r);
+	else if (chroma.r < -1e-5)
+		chromaScale = min(chromaScale, luminance / -chroma.r);
+	if (chroma.g > 1e-5)
+		chromaScale = min(chromaScale, (1.0 - luminance) / chroma.g);
+	else if (chroma.g < -1e-5)
+		chromaScale = min(chromaScale, luminance / -chroma.g);
+	if (chroma.b > 1e-5)
+		chromaScale = min(chromaScale, (1.0 - luminance) / chroma.b);
+	else if (chroma.b < -1e-5)
+		chromaScale = min(chromaScale, luminance / -chroma.b);
+
+	return vec3(luminance) + chroma * clamp(chromaScale, 0.0, 1.0);
+}
+
 void main()
 {
     vec4 c;
@@ -125,10 +147,18 @@ void main()
             sampleUv += vec2(waveA, waveB) * 0.006 * clamp(waterStrength, 0.0, 2.0);
         }
 
+        // A small negative implicit-LOD bias keeps oblique 128px RuneLite
+        // textures from becoming prematurely soft. It is world-texture-local;
+        // later fog blending and animated water remain untouched.
+        float clarityAmount = waterSurface
+            ? 0.0 : clamp(textureClarity, 0.0, 1.0);
+        float textureLodBias = -0.35 * clarityAmount;
+
         vec4 textureColor =
             texture(
                 textures,
-                vec3(sampleUv, float(textureIdx))
+                vec3(sampleUv, float(textureIdx)),
+                textureLodBias
             );
 
         vec4 textureColor0 =
@@ -561,34 +591,56 @@ void main()
 
     if (enhancedColors != 0)
     {
-        float luminance =
-            dot(
-                c.rgb,
-                vec3(
-                    0.2126,
-                    0.7152,
-                    0.0722
-                )
-            );
+        const vec3 luminanceWeights = vec3(0.2126, 0.7152, 0.0722);
+        float sourceLuminance = clamp(
+            dot(c.rgb, luminanceWeights), 0.0, 1.0);
+        float maximumChannel = max(c.r, max(c.g, c.b));
+        float minimumChannel = min(c.r, min(c.g, c.b));
+        float channelSpread = maximumChannel - minimumChannel;
+        float relativeChroma = channelSpread / max(maximumChannel, 0.10);
 
-        c.rgb =
-            mix(
-                vec3(luminance),
-                c.rgb,
-                saturation
-            );
+        // Raise muted OSRS materials more than colors that are already vivid.
+        // This produces "pop" without turning grass, fire, and markers neon.
+        float requestedSaturation = clamp(saturation, 0.0, 2.0);
+        float vibranceMask = 1.0 - smoothstep(0.18, 0.78, relativeChroma);
+        float effectiveSaturation = requestedSaturation <= 1.0
+            ? requestedSaturation
+            : 1.0 + (requestedSaturation - 1.0)
+                * mix(0.15, 1.0, vibranceMask);
+        vec3 saturatedColor = vec3(sourceLuminance)
+            + (c.rgb - vec3(sourceLuminance)) * effectiveSaturation;
 
-        c.rgb =
-            (c.rgb - vec3(0.5))
-            * contrast
-            + vec3(0.5);
+        // Contrast operates on luminance through a smooth toe and shoulder,
+        // rather than clipping each RGB channel independently.
+        float requestedContrast = clamp(contrast, 0.0, 2.0);
+        float targetLuminance;
+        float chromaContrastScale = 1.0;
+        if (requestedContrast < 1.0)
+        {
+            targetLuminance = mix(
+                0.5, sourceLuminance, requestedContrast);
+            chromaContrastScale = requestedContrast;
+        }
+        else
+        {
+            float luminanceSquared = sourceLuminance * sourceLuminance;
+            float inverseLuminance = 1.0 - sourceLuminance;
+            float inverseSquared = inverseLuminance * inverseLuminance;
+            float luminanceCurve = luminanceSquared
+                / max(luminanceSquared + inverseSquared, 1e-5);
+            targetLuminance = mix(
+                sourceLuminance,
+                luminanceCurve,
+                requestedContrast - 1.0);
+        }
 
-        c.rgb =
-            clamp(
-                c.rgb,
-                0.0,
-                1.0
-        );
+        vec3 gradedColor = vec3(targetLuminance)
+            + (saturatedColor - vec3(sourceLuminance))
+                * chromaContrastScale;
+        c.rgb = clamp(
+            fitColorToGamut(gradedColor, targetLuminance),
+            0.0,
+            1.0);
     }
 
     // ====================================================
