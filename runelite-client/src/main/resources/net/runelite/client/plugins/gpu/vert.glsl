@@ -47,6 +47,7 @@ uniform vec2 textureAnimations[TEXTURE_COUNT];
 out vec4 fColor;
 noperspective centroid out float fHsl;
 flat out int fTextureId;
+flat out int fMaterialId;
 out vec2 fUv;
 out vec2 fTileUv;
 flat out int fShoreEdges;
@@ -133,8 +134,12 @@ void main()
         );
 #endif
 
+    // RuneLite texture codes need nine bits (0 is untextured, 1..256 map to
+    // cache textures). Four unused positive GL_SHORT bits carry the CPU tag.
     fTextureId =
-        tex.x;
+        tex.x & 0x1ff;
+    fMaterialId =
+        (tex.x >> 9) & 0xf;
 
     fUv =
         vec2(

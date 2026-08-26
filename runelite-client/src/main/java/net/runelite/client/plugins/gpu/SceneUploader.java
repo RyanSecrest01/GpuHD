@@ -47,6 +47,11 @@ import net.runelite.client.callback.RenderCallbackManager;
 @Slf4j
 class SceneUploader
 {
+	// tex.w already carries the eight shoreline bits for terrain. These two
+	// higher bits identify surfaces which may receive world palette treatment.
+	private static final int TERRAIN_FLAG = SurfaceMaterial.TERRAIN_FLAG;
+	private static final int WORLD_SCENERY_FLAG = SurfaceMaterial.WORLD_SCENERY_FLAG;
+
 	private final int[] modelLocalXI;
 	private final int[] modelLocalYI;
 	private final int[] modelLocalZI;
@@ -597,8 +602,9 @@ class SceneUploader
 		final int lz3 = lz + Perspective.LOCAL_TILE_SIZE;
 		final int hsl3 = nwColor;
 
-		int tex = tile.getTexture() + 1;
-		int shoreEdges = 0;
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(tile);
+		int tex = surfaceMaterial.packTextureCode(tile.getTexture() + 1);
+		int shoreEdges = TERRAIN_FLAG;
 		if (isWaterTexture(tile.getTexture()))
 		{
 			shoreEdges |= !isWaterTile(scene, tileZ, tileX - 1, tileY) ? 1 : 0;
@@ -633,11 +639,7 @@ class SceneUploader
 
 	private static boolean isWaterTexture(int textureId)
 	{
-		return textureId == 1
-			|| textureId == 24
-			|| textureId == 25
-			|| textureId >= 130 && textureId <= 189
-			|| textureId == 208;
+		return SurfaceMaterialClassifier.isWaterTexture(textureId);
 	}
 
 	private static boolean isWaterTile(Scene scene, int tileZ, int tileX, int tileY)
@@ -727,15 +729,18 @@ class SceneUploader
 			int ly2 = vertexY[vertex2];
 			int lz2 = vertexZ[vertex2] - basez;
 
-			int tex = triangleTextures != null ? triangleTextures[i] + 1 : 0;
+			int texture = triangleTextures != null ? triangleTextures[i] : -1;
+			int tex = SurfaceMaterialClassifier.classifyTerrainFace(
+				sceneTileModel, i, texture, hsl0, hsl1, hsl2)
+				.packTextureCode(texture + 1);
 			vertexBuffer.put22224(lx0, ly0, lz0, hsl0);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex0] - lx) * 2f), (int) ((vertexZ[vertex0] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex, (int) ((vertexX[vertex0] - lx) * 2f), (int) ((vertexZ[vertex0] - lz) * 2f), TERRAIN_FLAG);
 
 			vertexBuffer.put22224(lx1, ly1, lz1, hsl1);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex1] - lx) * 2f), (int) ((vertexZ[vertex1] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex, (int) ((vertexX[vertex1] - lx) * 2f), (int) ((vertexZ[vertex1] - lz) * 2f), TERRAIN_FLAG);
 
 			vertexBuffer.put22224(lx2, ly2, lz2, hsl2);
-			vertexBuffer.put2222(tex, (int) ((vertexX[vertex2] - lx) * 2f), (int) ((vertexZ[vertex2] - lz) * 2f), 0);
+			vertexBuffer.put2222(tex, (int) ((vertexX[vertex2] - lx) * 2f), (int) ((vertexZ[vertex2] - lz) * 2f), TERRAIN_FLAG);
 		}
 
 		return cnt;
@@ -842,17 +847,19 @@ class SceneUploader
 			int alphaBias = 0;
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
-			int texture = faceTextures != null ? faceTextures[face] + 1 : 0;
+			int textureId = faceTextures != null ? faceTextures[face] : -1;
+			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+				.packTextureCode(textureId + 1);
 			GpuIntBuffer buf = alpha ? ab : vb;
 
 			buf.put22224(vx1, vy1, vz1, alphaBias | color1);
-			buf.put2222(texture, su0, sv0, 0);
+			buf.put2222(texture, su0, sv0, WORLD_SCENERY_FLAG);
 
 			buf.put22224(vx2, vy2, vz2, alphaBias | color2);
-			buf.put2222(texture, su1, sv1, 0);
+			buf.put2222(texture, su1, sv1, WORLD_SCENERY_FLAG);
 
 			buf.put22224(vx3, vy3, vz3, alphaBias | color3);
-			buf.put2222(texture, su2, sv2, 0);
+			buf.put2222(texture, su2, sv2, WORLD_SCENERY_FLAG);
 
 			len += 3;
 		}

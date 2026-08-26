@@ -199,6 +199,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniSaturation;
 	private int uniContrast;
 	private int uniPolygonDefinition;
+	private int uniMaterialPalette;
+	private int uniMaterialDebug;
 
 	private int uniShadowLightProj;
 	private int uniShadowBase;
@@ -1117,6 +1119,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniSaturation = glGetUniformLocation(glProgram, "saturation");
 		uniContrast = glGetUniformLocation(glProgram, "contrast");
 		uniPolygonDefinition = glGetUniformLocation(glProgram, "polygonDefinition");
+		uniMaterialPalette = glGetUniformLocation(glProgram, "materialPalette");
+		uniMaterialDebug = glGetUniformLocation(glProgram, "materialDebug");
 		uniLightDirection = glGetUniformLocation(glProgram, "lightDirection");
 		uniCameraPosition = glGetUniformLocation(glProgram, "cameraPosition");
 		uniEnhancedWater = glGetUniformLocation(glProgram, "enhancedWater");
@@ -2591,6 +2595,20 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				client.getGameState() == GameState.LOGGED_IN
 					? Math.max(0f, Math.min(1f, config.polygonDefinition() / 100f))
 					: 0f
+		);
+
+		glUniform1i(
+				uniMaterialPalette,
+				client.getGameState() == GameState.LOGGED_IN
+					? config.materialPalette().getId()
+					: MaterialPalette.CLASSIC.getId()
+		);
+
+		glUniform1i(
+				uniMaterialDebug,
+				client.getGameState() == GameState.LOGGED_IN && config.materialDebug()
+					? 1
+					: 0
 		);
 
 		// =====================================================

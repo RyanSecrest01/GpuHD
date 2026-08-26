@@ -232,7 +232,9 @@ class ModelUploader
 					int alphaBias = 0;
 					alphaBias |= faceTransparency(modelTransparency, transparencies != null ? transparencies[faceIdx] & 0xff : 0) << 24;
 					alphaBias |= bias != null ? (bias[faceIdx] & 0xff) << 16 : 0;
-					int texture = faceTextures != null ? faceTextures[faceIdx] + 1 : 0;
+					int textureId = faceTextures != null ? faceTextures[faceIdx] : -1;
+					int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+						.packTextureCode(textureId + 1);
 
 					int vbOff = faceIdx * FACE_SIZE;
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v1]);
@@ -240,21 +242,24 @@ class ModelUploader
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v1]);
 					vertexBuffer[vbOff++] = alphaBias | color1;
 					vertexBuffer[vbOff++] = ((su0 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv0 & 0xffff;
+					vertexBuffer[vbOff++] =
+						(SurfaceMaterial.WORLD_SCENERY_FLAG << 16) | (sv0 & 0xffff);
 
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v2]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalY[v2]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v2]);
 					vertexBuffer[vbOff++] = alphaBias | color2;
 					vertexBuffer[vbOff++] = ((su1 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv1 & 0xffff;
+					vertexBuffer[vbOff++] =
+						(SurfaceMaterial.WORLD_SCENERY_FLAG << 16) | (sv1 & 0xffff);
 
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v3]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalY[v3]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v3]);
 					vertexBuffer[vbOff++] = alphaBias | color3;
 					vertexBuffer[vbOff++] = ((su2 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv2 & 0xffff;
+					vertexBuffer[vbOff++] =
+						(SurfaceMaterial.WORLD_SCENERY_FLAG << 16) | (sv2 & 0xffff);
 				}
 			}
 		}
@@ -590,16 +595,18 @@ class ModelUploader
 			int alphaBias = 0;
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
-			int texture = faceTextures != null ? faceTextures[face] + 1 : 0;
+			int textureId = faceTextures != null ? faceTextures[face] : -1;
+			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+				.packTextureCode(textureId + 1);
 
 			putfff4(buffer, vx1, vy1, vz1, alphaBias | color1);
-			put2222(buffer, texture, su0, sv0, 0);
+			put2222(buffer, texture, su0, sv0, SurfaceMaterial.WORLD_SCENERY_FLAG);
 
 			putfff4(buffer, vx2, vy2, vz2, alphaBias | color2);
-			put2222(buffer, texture, su1, sv1, 0);
+			put2222(buffer, texture, su1, sv1, SurfaceMaterial.WORLD_SCENERY_FLAG);
 
 			putfff4(buffer, vx3, vy3, vz3, alphaBias | color3);
-			put2222(buffer, texture, su2, sv2, 0);
+			put2222(buffer, texture, su2, sv2, SurfaceMaterial.WORLD_SCENERY_FLAG);
 
 			len += 3;
 		}

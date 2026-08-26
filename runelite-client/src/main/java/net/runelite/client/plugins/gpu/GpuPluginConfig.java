@@ -378,6 +378,17 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "materialPalette",
+		name = "Material palette",
+		description = "Selects stock, natural, or lush material-aware world colors without recoloring characters or UI.",
+		position = 19
+	)
+	default MaterialPalette materialPalette()
+	{
+		return MaterialPalette.NATURAL;
+	}
+
+	@ConfigItem(
 			keyName = "dynamicShadows",
 			name = "Cast shadows",
 			description = "Adds selective cast shadows aligned with the visible sun or moon without relighting the whole world.",
@@ -401,6 +412,17 @@ public interface GpuPluginConfig extends Config
 	default int shadowStrength()
 	{
 		return 40;
+	}
+
+	@ConfigItem(
+		keyName = "materialDebug",
+		name = "Show material tags",
+		description = "Displays CPU-classified world materials for palette diagnostics.",
+		position = 24
+	)
+	default boolean materialDebug()
+	{
+		return false;
 	}
 
 	@ConfigItem(

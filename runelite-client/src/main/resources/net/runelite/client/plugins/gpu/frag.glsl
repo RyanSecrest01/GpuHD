@@ -27,6 +27,8 @@ uniform float textureLightMode;
 uniform int enhancedColors;
 uniform float saturation;
 uniform float contrast;
+uniform int materialPalette;
+uniform int materialDebug;
 
 // ========================================================
 // Selective celestial effects
@@ -57,6 +59,7 @@ uniform float shadowStrength;
 in vec4 fColor;
 noperspective centroid in float fHsl;
 flat in int fTextureId;
+flat in int fMaterialId;
 in vec2 fUv;
 in vec2 fTileUv;
 flat in int fShoreEdges;
@@ -122,11 +125,71 @@ vec3 fitColorToGamut(vec3 color, float luminance)
 	return vec3(luminance) + chroma * clamp(chromaScale, 0.0, 1.0);
 }
 
+vec3 materialDebugColor(int materialId)
+{
+	if (materialId == 1) return vec3(0.16, 0.92, 0.24); // grass
+	if (materialId == 2) return vec3(0.48, 0.58, 0.72); // stone
+	if (materialId == 3) return vec3(0.95, 0.75, 0.30); // sand
+	if (materialId == 4) return vec3(0.55, 0.25, 0.10); // dirt
+	if (materialId == 5) return vec3(0.86, 0.43, 0.12); // wood
+	if (materialId == 6) return vec3(0.24, 0.86, 0.92); // metal
+	if (materialId == 7) return vec3(0.08, 0.48, 0.12); // foliage
+	if (materialId == 8) return vec3(0.10, 0.48, 0.96); // water
+	return vec3(0.72, 0.08, 0.62); // unknown
+}
+
+vec3 applyMaterialPalette(vec3 sourceColor, int materialId, int preset)
+{
+	const vec3 luminanceWeights = vec3(0.2126, 0.7152, 0.0722);
+	vec3 gain = vec3(1.0);
+	float chromaGain = 1.0;
+	float amount = 0.0;
+
+	if (preset == 1) // Natural
+	{
+		if (materialId == 1) { gain = vec3(0.84, 1.055, 1.045); chromaGain = 1.07; amount = 0.68; }
+		else if (materialId == 2) { gain = vec3(0.985, 1.0, 1.025); chromaGain = 0.92; amount = 0.24; }
+		else if (materialId == 3) { gain = vec3(1.05, 1.015, 0.92); chromaGain = 1.04; amount = 0.42; }
+		else if (materialId == 4) { gain = vec3(1.06, 0.99, 0.92); chromaGain = 1.05; amount = 0.44; }
+		else if (materialId == 5) { gain = vec3(1.055, 0.99, 0.92); chromaGain = 1.05; amount = 0.42; }
+		else if (materialId == 6) { gain = vec3(0.98, 1.0, 1.035); chromaGain = 0.90; amount = 0.22; }
+		else if (materialId == 7) { gain = vec3(0.82, 1.07, 1.035); chromaGain = 1.09; amount = 0.68; }
+	}
+	else if (preset == 2) // Lush
+	{
+		if (materialId == 1) { gain = vec3(0.72, 1.11, 1.09); chromaGain = 1.14; amount = 0.82; }
+		else if (materialId == 2) { gain = vec3(0.96, 1.0, 1.055); chromaGain = 0.94; amount = 0.34; }
+		else if (materialId == 3) { gain = vec3(1.10, 1.02, 0.84); chromaGain = 1.09; amount = 0.58; }
+		else if (materialId == 4) { gain = vec3(1.11, 0.97, 0.82); chromaGain = 1.09; amount = 0.58; }
+		else if (materialId == 5) { gain = vec3(1.10, 0.975, 0.85); chromaGain = 1.10; amount = 0.56; }
+		else if (materialId == 6) { gain = vec3(0.94, 1.0, 1.075); chromaGain = 0.94; amount = 0.30; }
+		else if (materialId == 7) { gain = vec3(0.68, 1.14, 1.07); chromaGain = 1.16; amount = 0.84; }
+	}
+
+	float sourceLuminance = clamp(dot(sourceColor, luminanceWeights), 0.0, 1.0);
+	vec3 targetColor = sourceColor * gain;
+	targetColor += vec3(sourceLuminance - dot(targetColor, luminanceWeights));
+	targetColor = vec3(sourceLuminance)
+		+ (targetColor - vec3(sourceLuminance)) * chromaGain;
+	targetColor = fitColorToGamut(targetColor, sourceLuminance);
+
+	float maximumChannel = max(sourceColor.r, max(sourceColor.g, sourceColor.b));
+	float minimumChannel = min(sourceColor.r, min(sourceColor.g, sourceColor.b));
+	float relativeChroma = (maximumChannel - minimumChannel)
+		/ max(maximumChannel, 0.10);
+	float tonalGate = smoothstep(0.015, 0.075, sourceLuminance)
+		* (1.0 - smoothstep(0.88, 0.99, sourceLuminance));
+	float vividGate = 1.0 - 0.50 * smoothstep(0.62, 0.95, relativeChroma);
+	return mix(sourceColor, targetColor,
+		clamp(amount * tonalGate * vividGate, 0.0, 1.0));
+}
+
 void main()
 {
     vec4 c;
     bool waterSurface = false;
     bool swampWater = false;
+	bool paletteEligible = (fShoreEdges & 0x300) != 0;
 
     // ====================================================
     // Normal RuneLite texture rendering
@@ -222,6 +285,14 @@ void main()
                 fColor.a
             );
     }
+
+	// Material palettes reshape only the chroma of classified world surfaces.
+	// Classic, unknown materials, actors, water, and UI retain the stock path.
+	if (materialPalette != 0 && paletteEligible
+		&& fMaterialId >= 1 && fMaterialId <= 7)
+	{
+		c.rgb = applyMaterialPalette(c.rgb, fMaterialId, materialPalette);
+	}
 
 
 #if COLORBLIND_MODE > 0
@@ -707,6 +778,15 @@ void main()
 	float lightningVisibility = mix(0.16, 1.0, worldShadowVisibility);
 	mixedColor += vec3(0.68, 0.78, 1.0) * lightningFlash
 		* lightningVisibility * (0.32 + 0.68 * (1.0 - fFogAmount));
+
+	// Keep this last so classification mistakes are obvious and are not hidden
+	// by fog, shadows, weather, or the independent Enhanced Colors controls.
+	if (materialDebug != 0)
+	{
+		mixedColor = paletteEligible
+			? materialDebugColor(fMaterialId)
+			: mixedColor * 0.08;
+	}
 
     FragColor =
         vec4(
