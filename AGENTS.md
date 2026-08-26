@@ -1,70 +1,73 @@
 # RuneLite GPU Experimental Renderer
 
-This is a custom fork of RuneLite's built-in GPU plugin.
+This repository is a lightweight extension of RuneLite's stock GPU plugin. The visual target is clean, smooth, colorful OSRS—not a wholesale 117 HD clone.
 
-## Current goals
+## Start here
 
-We are extending the stock GPU renderer while keeping it lightweight.
+1. Run `git status --short --branch` before reading code or editing. The worktree may contain user changes.
+2. Read only the subsystem document relevant to the task:
+   - Core renderer, shadows, materials, color, textures, sky: `docs/RENDERER.md`
+   - Water: `docs/WATER.md`
+   - Fog, weather mist, celestial rays: `docs/VOLUMETRICS.md`
+3. Use the file/anchor map in that document. Do not begin with a full-repository scan.
+4. If architecture or a verified limitation changes, update the relevant document in the same change.
 
-Features already added:
-- custom cubemap skyboxes
-- DAY / SUNSET / NIGHT / COSMIC SkyMode
-- sky-aware fog
-- enhanced saturation and contrast
-- experimental directional lighting
-- experimental shadow-map infrastructure
+## Current baseline
 
-## Important rules
+- Active development branch: `feature/stone-cleanup`.
+- If `git status` reports another branch, treat this as the documented baseline and verify that branch's diff before assuming a subsystem is present.
+- `mac-dev` contains the rejected camera-space celestial-ray prototype. Do not merge it wholesale.
+- `origin/master` contains larger experimental systems, including deferred water. Treat it as a research source and port features incrementally.
+- Celestial rays are intentionally absent from the active branch. The visible sun/moon glow is not a volumetric-ray system.
+- Directional shadows, roof-dominant shadow casters, material tags, material palettes, polygon definition, weather, skyboxes, and inline enhanced water are active.
 
-- Preserve the existing RuneLite GPU rendering pipeline whenever possible.
-- Make small incremental changes.
-- Do not rewrite large rendering systems without explaining why.
-- Keep RuneLite launching after each step.
-- Prefer reusing existing VAOs/VBOs over duplicating world geometry.
-- Always restore OpenGL state after custom passes.
-- Avoid breaking login screen rendering.
-- Avoid changing UI rendering unless required.
-- Run the client/Gradle compile after meaningful changes.
-- When debugging graphics, isolate one subsystem at a time.
+## Non-negotiable renderer rules
 
-## Rendering direction
+- Preserve stock RuneLite color and geometry flow wherever possible.
+- Never reintroduce blanket per-triangle diffuse/dynamic lighting. It exposed terrain seams and darkened the map.
+- Cast shadows may darken stock color only inside a validated shadow mask. Unoccluded pixels must remain stock before independent effects.
+- Reuse existing zone VAOs/VBOs. Avoid duplicating world geometry.
+- RuneLite scene depth is reversed (`GL_GREATER`, clear depth `0`). The shadow map uses conventional depth (`GL_LESS`, clear depth `1`). Never mix those conventions.
+- Restore every OpenGL state changed by a custom pass, including framebuffer bindings, viewport, program, VAO, depth state, blend state, culling, active texture, and clip-control mode where relevant.
+- Do not alter UI rendering or login rendering unless the task explicitly requires it.
+- Keep custom world effects gated to `GameState.LOGGED_IN` or provide a deterministic login fallback.
+- Avoid temporal history on macOS; prior history/billboard experiments produced ghosting and screen cutoffs.
+- Do not launch the client repeatedly for diagnostics. The user's Mac is resource-constrained. Prefer static inspection, focused tests, and compilation; request one controlled visual run only when it can answer a specific question.
 
-The sky preset should eventually act as the master environment state.
-
-DAY:
-- bright neutral ambient
-- warm directional sunlight
-- high sun angle
-
-SUNSET:
-- warm orange directional light
-- low sun angle
-- cooler/darker ambient
-
-NIGHT:
-- dark blue ambient
-- weak cool moonlight
-
-COSMIC:
-- dark violet ambient
-- very subtle directional light
-
-Enhanced Colors should remain independent and responsive.
-
-## Shadow work
-
-There is currently experimental shadow-map code.
-Do not assume it is correct.
-Validate coordinate spaces, matrices, and depth conventions before using it to darken the visible scene.
-
-RuneLite normal rendering uses reversed depth.
-The experimental shadow framebuffer currently uses conventional depth.
-
-## Workflow
+## Efficient workflow
 
 Before editing:
-1. inspect all relevant Java and GLSL files
-2. explain the render path being modified
-3. make the minimum viable change
-4. compile/run
-5. report exactly which files changed
+
+- Read the relevant subsystem document completely.
+- Inspect only its listed files and the current diff.
+- State the render path and the minimum intended change.
+
+After a meaningful change:
+
+```bash
+./gradlew :client:compileJava :client:processResources --offline
+./gradlew :client:test \
+  --tests net.runelite.client.plugins.gpu.GpuPluginLightMatrixTest \
+  --tests net.runelite.client.plugins.gpu.SurfaceMaterialClassifierTest \
+  --offline
+git diff --check
+```
+
+`ShaderTest` skips unless `glslangValidator` is supplied. When available:
+
+```bash
+./gradlew :client:test \
+  --tests net.runelite.client.plugins.gpu.ShaderTest \
+  -PglslangPath="$(command -v glslangValidator)" --offline
+```
+
+Report exactly which files changed, what was verified, and what still needs an in-game check.
+
+## Art direction
+
+- Prefer restrained, material-specific response over global effects.
+- Enhanced Colors must remain independent and neutral at `100`.
+- Polygon Definition should add bounded light-facing definition, never outlines or global darkness.
+- Architecture should be matte and readable; vegetation may carry more saturation.
+- Texture quality should improve through conservative material tags and sparse curated replacements, not global sharpening.
+- Sky preset/weather is the master environment state for fog, sun/moon, reflections, shadows, and weather visibility.
