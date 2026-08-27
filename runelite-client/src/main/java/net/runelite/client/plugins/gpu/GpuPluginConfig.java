@@ -632,7 +632,7 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 		keyName = "terrainDetail",
 		name = "3D ground details",
-		description = "Adds real, light-reactive pebble and rock geometry to eligible stone terrain.",
+		description = "Adds real, light-reactive pebbles, sand fragments, and dirt clods to eligible ground materials.",
 		position = 48
 	)
 	default boolean terrainDetail()
@@ -643,8 +643,8 @@ public interface GpuPluginConfig extends Config
 	@Range(min = 0, max = 100)
 	@ConfigItem(
 		keyName = "terrainDetailStrength",
-		name = "Rock detail density",
-		description = "Controls how many eligible pebble and rock clusters are rendered.",
+		name = "Ground detail density",
+		description = "Controls how many eligible pebble, sand, and dirt detail clusters are rendered.",
 		position = 49
 	)
 	default int terrainDetailStrength()
@@ -655,8 +655,8 @@ public interface GpuPluginConfig extends Config
 	@Range(min = 6, max = 18)
 	@ConfigItem(
 		keyName = "terrainDetailDistance",
-		name = "Rock detail distance",
-		description = "Maximum pebble and rock render distance around the player, in tiles.",
+		name = "Ground detail distance",
+		description = "Maximum 3D ground-detail render distance around the player, in tiles.",
 		position = 50
 	)
 	default int terrainDetailDistance()
@@ -667,7 +667,7 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 		keyName = "materialDebugMode",
 		name = "Material debug",
-		description = "Visualizes explicit material tags or grass/stone material candidates for 3D details.",
+		description = "Visualizes explicit material tags or grass, stone, sand, and dirt candidates for 3D details.",
 		position = 51
 	)
 	default MaterialDebugMode materialDebugMode()
@@ -676,10 +676,21 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "materialInspector",
+		name = "Material inspector",
+		description = "Shows the hovered tile's material, source rule, terrain IDs, textures, and object IDs for renderer development.",
+		position = 52
+	)
+	default boolean materialInspector()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "materialLighting",
 		name = "Material lighting",
 		description = "Lets tagged grass, stone, sand, wood, metal, foliage, and dirt respond naturally to the active sun or moon.",
-		position = 52
+		position = 53
 	)
 	default boolean materialLighting()
 	{
@@ -691,7 +702,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialLightingStrength",
 		name = "Material response",
 		description = "Controls the strength of material-specific highlights and surface response without relighting untagged geometry.",
-		position = 53
+		position = 54
 	)
 	default int materialLightingStrength()
 	{
@@ -702,7 +713,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "wetSurfaces",
 		name = "Wet surfaces",
 		description = "Lets rain and storms darken and add restrained reflections to eligible ground materials.",
-		position = 54
+		position = 55
 	)
 	default boolean wetSurfaces()
 	{
@@ -714,7 +725,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "wetSurfaceStrength",
 		name = "Wet surface strength",
 		description = "Controls the rain-driven darkening and reflected-light response of wet surfaces.",
-		position = 55
+		position = 56
 	)
 	default int wetSurfaceStrength()
 	{

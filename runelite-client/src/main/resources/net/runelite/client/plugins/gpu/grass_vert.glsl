@@ -3,7 +3,8 @@
 // Unified procedural surface-detail contract:
 //   location 0: xyz = planted world position, w = stable random seed
 //   location 1: x = packed RuneLite HSL, y = detail type
-//               type 0 = grass clump, type 1 = stone/pebble pair
+//               type 0 = grass clump, type 1 = stone/pebble pair,
+//               type 2 = sand fragments, type 3 = dirt clods
 // Every instance emits exactly 60 vertices. This keeps the original lightweight
 // instanced draw while allowing material-classified detail geometry.
 layout(location = 0) in vec4 anchorSeed;
@@ -13,9 +14,11 @@ layout(location = 1) in vec2 anchorDetail;
 // directly into that pass and are drawn with GL_GREATER by the Java owner.
 uniform mat4 projection;
 uniform vec3 focusPosition;
+// Adds the scene base back to local GPU coordinates for rebase-stable wind.
+uniform vec2 worldOffset;
 uniform float time;
-// x = grass radius, y = stone radius (world units).
-uniform vec2 drawRadius;
+// grass, stone, sand, dirt radii respectively (world units).
+uniform vec4 drawRadius;
 uniform float heightScale;
 uniform float windStrength;
 uniform int weatherMode;
@@ -91,8 +94,17 @@ void emitGrass(float spatialSeed, float scale)
 
 	// These dimensions remain cheap ribbon geometry but are deliberately large
 	// enough to read at RuneLite's normal zoom. Full width is 4--7 world units.
-	float bladeHeight = mix(24.0, 46.0, bladeSeed) * scale;
-	float halfWidth = mix(2.0, 3.5, shapeSeed) * scale;
+	// A full-range geometry seed chooses a clump archetype independently from
+	// density selection: short/wide tuft, normal meadow, or rare tall/fine accent.
+	float archetype = hash(spatialSeed + anchorSeed.w * 101.19 + 5.7);
+	float heightProfile = archetype < 0.20 ? 0.78
+		: archetype > 0.90 ? 1.17 : 1.0;
+	float widthProfile = archetype < 0.20 ? 1.14
+		: archetype > 0.90 ? 0.78 : 1.0;
+	float bladeHeight = mix(24.0, 46.0, bladeSeed)
+		* heightProfile * scale;
+	float halfWidth = mix(2.0, 3.5, shapeSeed)
+		* widthProfile * scale;
 
 	// Independent stable orientations prevent the five ribbons from exposing a
 	// repeated star/aloe silhouette in RuneLite's common overhead view. Several
@@ -115,7 +127,7 @@ void emitGrass(float spatialSeed, float scale)
 	float windAmount = min(
 		clamp(abs(windStrength), 0.0, 2.5) * weatherWind,
 		2.15);
-	float broadPhase = dot(anchorSeed.xz, flowDirection) * 0.0042
+	float broadPhase = dot(anchorSeed.xz + worldOffset, flowDirection) * 0.0042
 		- time * mix(0.72, 1.48, clamp(windAmount / 2.5, 0.0, 1.0));
 	float gustEnvelope = clamp(0.55
 		+ sin(broadPhase) * 0.25
@@ -164,7 +176,7 @@ void emitGrass(float spatialSeed, float scale)
 	fSeed = bladeSeed;
 }
 
-void emitStone(float spatialSeed, float scale)
+void emitScatter(float spatialSeed, float scale, int detailType)
 {
 	int rock = gl_VertexID / VERTICES_PER_ROCK;
 	int rockVertex = gl_VertexID - rock * VERTICES_PER_ROCK;
@@ -176,30 +188,49 @@ void emitStone(float spatialSeed, float scale)
 	float rockSeed = hash(spatialSeed + anchorSeed.w * 83.71
 		+ float(rock) * 29.23 + 7.0);
 	float scaleSeed = hash(rockSeed * 51.31 + 4.7);
-	float rockScale = rock == 0
-		? mix(0.88, 1.18, scaleSeed)
-		: mix(0.58, 0.84, scaleSeed);
-	float radius = mix(5.0, 8.2, rockSeed) * rockScale * scale;
+	bool isStone = detailType == 1;
+	bool isSand = detailType == 2;
+	float primaryScale = isStone ? mix(0.86, 1.12, scaleSeed)
+		: isSand ? mix(0.72, 1.02, scaleSeed)
+		: mix(0.78, 1.05, scaleSeed);
+	float secondaryScale = isStone ? mix(0.55, 0.78, scaleSeed)
+		: isSand ? mix(0.55, 0.80, scaleSeed)
+		: mix(0.60, 0.84, scaleSeed);
+	float rockScale = rock == 0 ? primaryScale : secondaryScale;
+	float radius = (isStone ? mix(4.4, 6.8, rockSeed)
+		: isSand ? mix(2.7, 5.0, rockSeed)
+		: mix(3.1, 5.8, rockSeed)) * rockScale * scale;
 	float radiusX = radius * mix(0.88, 1.16, hash(rockSeed * 31.7));
-	float radiusZ = radius * mix(0.82, 1.13, hash(rockSeed * 67.9));
-	float rockHeight = mix(4.0, 7.2, hash(rockSeed * 97.1 + 2.0))
+	float radiusZ = radius * (isSand
+		? mix(0.38, 0.70, hash(rockSeed * 67.9))
+		: mix(0.82, 1.13, hash(rockSeed * 67.9)));
+	float rockHeight = (isStone
+		? mix(3.8, 7.0, hash(rockSeed * 97.1 + 2.0))
+		: isSand
+			? mix(0.9, 2.3, hash(rockSeed * 97.1 + 2.0))
+			: mix(1.5, 3.6, hash(rockSeed * 97.1 + 2.0)))
 		* rockScale * scale;
 	float yaw = hash(rockSeed * 121.7 + 13.0) * TWO_PI;
 	float placementAngle = hash(anchorSeed.w * 149.9 + float(rock) * 37.0)
 		* TWO_PI + float(rock) * 2.35;
 	float placementRadius = rock == 0
-		? mix(0.5, 2.8, hash(rockSeed * 17.3))
-		: mix(5.0, 8.5, hash(rockSeed * 23.9));
+		? mix(0.3, 1.8, hash(rockSeed * 17.3))
+		: isStone
+			? mix(3.2, 4.5, hash(rockSeed * 23.9))
+			: mix(2.4, 4.3, hash(rockSeed * 23.9));
+	float burial = (isStone ? 2.4 : isSand ? 0.8 : 1.3) * scale;
 	vec3 rockOrigin = anchorSeed.xyz + vec3(
 		cos(placementAngle) * placementRadius * scale,
-		0.0,
+		burial,
 		sin(placementAngle) * placementRadius * scale);
 
 	vec3 top = vec3(
 		(hash(rockSeed * 181.1) - 0.5) * radiusX * 0.24,
 		-rockHeight,
 		(hash(rockSeed * 211.3) - 0.5) * radiusZ * 0.24);
-	vec3 bottom = vec3(0.0, 1.6 * scale, 0.0);
+	vec3 bottom = vec3(0.0,
+		(isStone ? 1.5 : isSand ? 0.55 : 0.9) * scale,
+		0.0);
 	vec3 ringA = rockRingPoint(
 		side, rockSeed, radiusX, radiusZ, rockHeight, yaw);
 	vec3 ringB = rockRingPoint(
@@ -242,21 +273,23 @@ void emitStone(float spatialSeed, float scale)
 
 void main()
 {
-	float detailType = anchorDetail.y < 0.5 ? 0.0 : 1.0;
-	float spatialSeed = dot(floor(anchorSeed.xyz), vec3(0.071, 0.113, 0.173));
+	int detailType = clamp(int(floor(anchorDetail.y + 0.5)), 0, 3);
+	// Morphology comes only from the CPU's absolute-world seed. Scene-local GPU
+	// coordinates can rebase as the player walks and must not reshuffle shapes.
+	float spatialSeed = anchorSeed.w * 8191.731 + float(detailType) * 131.17;
 	float scale = max(heightScale, 0.05);
-	if (detailType < 0.5)
+	if (detailType == 0)
 	{
 		emitGrass(spatialSeed, scale);
 	}
 	else
 	{
-		emitStone(spatialSeed, scale);
+		emitScatter(spatialSeed, scale, detailType);
 	}
 
 	fGroundHsl = anchorDetail.x;
-	fDetailType = detailType;
-	float selectedRadius = detailType < 0.5 ? drawRadius.x : drawRadius.y;
+	fDetailType = float(detailType);
+	float selectedRadius = drawRadius[detailType];
 	float safeRadius = max(selectedRadius, 1.0);
 	float focusDistance = length(anchorSeed.xz - focusPosition.xz);
 	fDistanceFade = 1.0

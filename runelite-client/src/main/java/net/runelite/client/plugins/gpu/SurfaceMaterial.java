@@ -16,8 +16,8 @@ enum SurfaceMaterial
 	UNKNOWN(0, -1),
 	GRASS(1, 0),
 	STONE(2, 1),
-	SAND(3, -1),
-	DIRT(4, -1),
+	SAND(3, 2),
+	DIRT(4, 3),
 	WOOD(5, -1),
 	METAL(6, -1),
 	FOLIAGE(7, -1),
@@ -27,6 +27,9 @@ enum SurfaceMaterial
 	static final int TEXTURE_MASK = (1 << TEXTURE_BITS) - 1;
 	static final int MATERIAL_BITS = 4;
 	static final int MATERIAL_MASK = (1 << MATERIAL_BITS) - 1;
+	static final int VARIANT_BITS = 3;
+	static final int VARIANT_SHIFT = TEXTURE_BITS + MATERIAL_BITS;
+	static final int VARIANT_MASK = (1 << VARIANT_BITS) - 1;
 
 	private final int id;
 	private final int detailType;
@@ -52,9 +55,20 @@ enum SurfaceMaterial
 		return detailType >= 0;
 	}
 
+	int getDefaultAuthoredVariant()
+	{
+		return this == UNKNOWN || this == WATER ? 0 : 1;
+	}
+
 	int packTextureCode(int textureCode)
 	{
+		return packTextureCode(textureCode, 0);
+	}
+
+	int packTextureCode(int textureCode, int authoredVariant)
+	{
 		return textureCode & TEXTURE_MASK
-			| (id & MATERIAL_MASK) << TEXTURE_BITS;
+			| (id & MATERIAL_MASK) << TEXTURE_BITS
+			| (authoredVariant & VARIANT_MASK) << VARIANT_SHIFT;
 	}
 }

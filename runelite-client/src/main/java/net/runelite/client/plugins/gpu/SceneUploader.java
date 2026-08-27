@@ -41,6 +41,7 @@ import net.runelite.api.Scene;
 import net.runelite.api.SceneTileModel;
 import net.runelite.api.SceneTilePaint;
 import net.runelite.api.Tile;
+import net.runelite.api.TileObject;
 import net.runelite.api.WallObject;
 import net.runelite.api.WorldView;
 import net.runelite.client.callback.RenderCallbackManager;
@@ -49,11 +50,20 @@ import net.runelite.client.callback.RenderCallbackManager;
 class SceneUploader
 {
 	private static final int SURFACE_DETAIL_ANCHOR_STRIDE = 6;
-	private static final int MAX_SURFACE_DETAIL_ANCHORS_PER_TILE = 12;
-	private static final int MAX_SURFACE_DETAIL_SLOPE = 72;
+	// A shaped tile can contain every supported detail material. Candidate
+	// maxima are 11 grass + 5 stone + 2 sand + 2 dirt anchors.
+	private static final int MAX_SURFACE_DETAIL_ANCHORS_PER_TILE = 20;
 	private static final int SURFACE_DETAIL_NONE = -1;
 	private static final int SURFACE_DETAIL_GRASS = 0;
 	private static final int SURFACE_DETAIL_PEBBLE = 1;
+	private static final int SURFACE_DETAIL_SAND = 2;
+	private static final int SURFACE_DETAIL_DIRT = 3;
+	private static final int SURFACE_DETAIL_TYPE_COUNT = 4;
+	private static final int TERRAIN_LAYER_UNDERLAY = 0;
+	private static final int TERRAIN_LAYER_OVERLAY = 1;
+	private static final int NO_TERRAIN_DEFINITION = -1;
+	private static final int TURF_TEXTURE = 129;
+	private static final int GRASS_OVERLAY = 29;
 	private static final int INVISIBLE_HSL = 12345678;
 
 	private static final class SurfaceDetailMaterial
@@ -247,6 +257,10 @@ class SceneUploader
 	{
 		Tile[][][] tiles = scene.getExtendedTiles();
 		int[][][] tileHeights = scene.getTileHeights();
+		byte[][][] tileSettings = scene.getExtendedTileSettings();
+		int[][][] roofs = scene.getRoofs();
+		short[][][] underlays = scene.getUnderlayIds();
+		short[][][] overlays = scene.getOverlayIds();
 		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
 		float[] anchors = new float[8 * 8 * MAX_SURFACE_DETAIL_ANCHORS_PER_TILE
 			* SURFACE_DETAIL_ANCHOR_STRIDE];
@@ -275,45 +289,56 @@ class SceneUploader
 					}
 
 					int heightLevel = tile.getRenderLevel();
-					if (heightLevel != 0 || heightLevel >= tileHeights.length
+					int tileFlags = tileSettings[level][sceneX][sceneZ] & 0xff;
+					int bridgeFlags = tileSettings[1][sceneX][sceneZ] & 0xff;
+					int roofId = roofs[level][sceneX][sceneZ];
+					if (!surfaceDetailTileEligible(level, tile.getPlane(), heightLevel,
+						tileFlags, bridgeFlags, roofId, tile.getBridge() != null)
+						|| heightLevel >= tileHeights.length
 						|| sceneX + 1 >= tileHeights[heightLevel].length
 						|| sceneZ + 1 >= tileHeights[heightLevel][sceneX].length)
 					{
 						continue;
 					}
 
+					int underlayId = decodeTerrainDefinitionId(
+						underlays[level][sceneX][sceneZ]);
+					int overlayId = decodeTerrainDefinitionId(
+						overlays[level][sceneX][sceneZ]);
+
 					int swHeight = tileHeights[heightLevel][sceneX][sceneZ];
 					int seHeight = tileHeights[heightLevel][sceneX + 1][sceneZ];
 					int neHeight = tileHeights[heightLevel][sceneX + 1][sceneZ + 1];
 					int nwHeight = tileHeights[heightLevel][sceneX][sceneZ + 1];
-					int worldTileX = scene.getBaseX() + sceneX - sceneOffset;
-					int worldTileZ = scene.getBaseY() + sceneZ - sceneOffset;
+					int worldTileX = sceneToWorldTile(scene.getBaseX(), sceneX, sceneOffset);
+					int worldTileZ = sceneToWorldTile(scene.getBaseY(), sceneZ, sceneOffset);
 					SceneTilePaint paint = tile.getSceneTilePaint();
 					if (paint != null)
 					{
-						SurfaceDetailMaterial material = surfaceMaterial(paint);
+						SurfaceDetailMaterial material = surfaceMaterial(
+							paint, underlayId, overlayId,
+							worldTileX, worldTileZ, level);
 						int minHeight = Math.min(Math.min(swHeight, seHeight), Math.min(neHeight, nwHeight));
 						int maxHeight = Math.max(Math.max(swHeight, seHeight), Math.max(neHeight, nwHeight));
 						if (material != null
-							&& maxHeight - minHeight <= MAX_SURFACE_DETAIL_SLOPE)
+							&& maxHeight - minHeight <= surfaceDetailMaxSlope(material.type))
 						{
 							int anchorCount = surfaceAnchorCount(material.type,
 								worldTileX, worldTileZ);
 							for (int anchor = 0; anchor < anchorCount; ++anchor)
 							{
-								int sampleBase = material.type * 97 + anchor * 3;
-								int hashX = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 1);
-								int hashZ = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 2);
-								int hashSeed = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 3);
-								float tileX = 0.07f + hashUnit(hashX) * 0.86f;
-								float tileZ = 0.07f + hashUnit(hashZ) * 0.86f;
+								float tileX = surfaceSampleCoordinate(material.type, anchor,
+									true, worldTileX, worldTileZ, level);
+								float tileZ = surfaceSampleCoordinate(material.type, anchor,
+									false, worldTileX, worldTileZ, level);
 								float height = paintHeight(tileX, tileZ,
 									swHeight, seHeight, neHeight, nwHeight);
 								writeOffset = putSurfaceDetailAnchor(anchors, writeOffset,
 									(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
 									height,
 									(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
-									hashUnit(hashSeed), material);
+									surfaceGeometrySeed(worldTileX, worldTileZ, level,
+										material.type, anchor), material);
 							}
 						}
 					}
@@ -323,7 +348,8 @@ class SceneUploader
 						if (model != null)
 						{
 							writeOffset = appendModelSurfaceDetails(anchors, writeOffset,
-								model, xoff, zoff, worldTileX, worldTileZ, level);
+								model, xoff, zoff, worldTileX, worldTileZ, level,
+								underlayId, overlayId);
 						}
 					}
 				}
@@ -337,7 +363,8 @@ class SceneUploader
 
 	private static int appendModelSurfaceDetails(float[] anchors, int writeOffset,
 		SceneTileModel model, int xoff, int zoff,
-		int worldTileX, int worldTileZ, int level)
+		int worldTileX, int worldTileZ, int level,
+		int underlayId, int overlayId)
 	{
 		int[] faceX = model.getFaceX();
 		int[] faceY = model.getFaceY();
@@ -352,6 +379,8 @@ class SceneUploader
 		int faceCount = Math.min(faceX.length,
 			Math.min(faceY.length, faceZ.length));
 		SurfaceDetailMaterial[] materials = new SurfaceDetailMaterial[faceCount];
+		int[] detailTypes = new int[faceCount];
+		Arrays.fill(detailTypes, SURFACE_DETAIL_NONE);
 		boolean[] sampleable = new boolean[faceCount];
 
 		for (int face = 0; face < faceCount; ++face)
@@ -373,9 +402,7 @@ class SceneUploader
 				* (vertexZ[c] - vertexZ[a])
 				- (long) (vertexZ[b] - vertexZ[a])
 				* (vertexX[c] - vertexX[a]));
-			sampleable[face] = areaTwice > 0
-				&& maxHeight - minHeight <= MAX_SURFACE_DETAIL_SLOPE;
-			if (!sampleable[face] || isWaterTexture(texture))
+			if (areaTwice <= 0 || isWaterTexture(texture))
 			{
 				continue;
 			}
@@ -383,29 +410,40 @@ class SceneUploader
 			int hslA = colorA[face];
 			int hslB = face < colorB.length ? colorB[face] : hslA;
 			int hslC = face < colorC.length ? colorC[face] : hslA;
-			materials[face] = surfaceMaterial(model, face,
-				texture, hslA, hslB, hslC);
+			SurfaceDetailMaterial material = surfaceMaterial(model, face,
+				texture, hslA, hslB, hslC, underlayId, overlayId,
+				worldTileX, worldTileZ, level);
+			if (material != null
+				&& maxHeight - minHeight <= surfaceDetailMaxSlope(material.type))
+			{
+				materials[face] = material;
+				detailTypes[face] = material.type;
+				sampleable[face] = true;
+			}
 		}
 
 		int tileBaseX = modelTileBase(vertexX);
 		int tileBaseZ = modelTileBase(vertexZ);
-		for (int type = SURFACE_DETAIL_GRASS; type <= SURFACE_DETAIL_PEBBLE; ++type)
+		for (int type = SURFACE_DETAIL_GRASS; type < SURFACE_DETAIL_TYPE_COUNT; ++type)
 		{
 			int anchorCount = surfaceAnchorCount(type, worldTileX, worldTileZ);
 			for (int anchor = 0; anchor < anchorCount; ++anchor)
 			{
-				int sampleBase = 211 + type * 97 + anchor * 3;
-				int hashX = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 1);
-				int hashZ = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 2);
-				int hashSeed = surfaceHash(worldTileX, worldTileZ, level, sampleBase + 3);
-				float tileX = 0.04f + hashUnit(hashX) * 0.92f;
-				float tileZ = 0.04f + hashUnit(hashZ) * 0.92f;
+				float tileX = surfaceSampleCoordinate(type, anchor,
+					true, worldTileX, worldTileZ, level);
+				float tileZ = surfaceSampleCoordinate(type, anchor,
+					false, worldTileX, worldTileZ, level);
 				float sampleX = tileBaseX + tileX * Perspective.LOCAL_TILE_SIZE;
 				float sampleZ = tileBaseZ + tileZ * Perspective.LOCAL_TILE_SIZE;
 				int face = containingModelFace(sampleX, sampleZ, sampleable,
 					faceX, faceY, faceZ, vertexX, vertexZ);
 				if (face < 0 || materials[face] == null
 					|| materials[face].type != type)
+				{
+					continue;
+				}
+				if (!surfaceDetailFootprintClear(sampleX, sampleZ, face, type,
+					detailTypes, sampleable, faceX, faceY, faceZ, vertexX, vertexZ))
 				{
 					continue;
 				}
@@ -416,7 +454,8 @@ class SceneUploader
 					(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
 					height,
 					(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
-					hashUnit(hashSeed), materials[face]);
+					surfaceGeometrySeed(worldTileX, worldTileZ, level,
+						type, anchor), materials[face]);
 			}
 		}
 		return writeOffset;
@@ -484,6 +523,137 @@ class SceneUploader
 		return -1;
 	}
 
+	static boolean surfaceDetailFootprintClear(
+		float sampleX,
+		float sampleZ,
+		int face,
+		int type,
+		int[] detailTypes,
+		boolean[] sampleable,
+		int[] faceX,
+		int[] faceY,
+		int[] faceZ,
+		int[] vertexX,
+		int[] vertexZ)
+	{
+		float clearance = surfaceDetailEdgeClearance(type);
+		if (clearance <= 0.0f || face < 0 || face >= detailTypes.length)
+		{
+			return false;
+		}
+
+		int a = faceX[face];
+		int b = faceY[face];
+		int c = faceZ[face];
+		float clearanceSquared = clearance * clearance;
+		return surfaceDetailEdgeClear(sampleX, sampleZ, face, a, b, type,
+			clearanceSquared, detailTypes, sampleable,
+			faceX, faceY, faceZ, vertexX, vertexZ)
+			&& surfaceDetailEdgeClear(sampleX, sampleZ, face, b, c, type,
+				clearanceSquared, detailTypes, sampleable,
+				faceX, faceY, faceZ, vertexX, vertexZ)
+			&& surfaceDetailEdgeClear(sampleX, sampleZ, face, c, a, type,
+				clearanceSquared, detailTypes, sampleable,
+				faceX, faceY, faceZ, vertexX, vertexZ);
+	}
+
+	private static boolean surfaceDetailEdgeClear(
+		float sampleX,
+		float sampleZ,
+		int face,
+		int vertexA,
+		int vertexB,
+		int type,
+		float clearanceSquared,
+		int[] detailTypes,
+		boolean[] sampleable,
+		int[] faceX,
+		int[] faceY,
+		int[] faceZ,
+		int[] vertexX,
+		int[] vertexZ)
+	{
+		return pointSegmentDistanceSquared(sampleX, sampleZ,
+			vertexX[vertexA], vertexZ[vertexA],
+			vertexX[vertexB], vertexZ[vertexB]) >= clearanceSquared
+			|| hasAdjacentDetailFace(face, vertexA, vertexB, type,
+				detailTypes, sampleable, faceX, faceY, faceZ);
+	}
+
+	static float surfaceDetailEdgeClearance(int type)
+	{
+		switch (type)
+		{
+			case SURFACE_DETAIL_GRASS:
+				return 4.0f;
+			case SURFACE_DETAIL_PEBBLE:
+				return 14.0f;
+			case SURFACE_DETAIL_SAND:
+				return 11.0f;
+			case SURFACE_DETAIL_DIRT:
+				return 12.0f;
+			default:
+				return -1.0f;
+		}
+	}
+
+	private static boolean hasAdjacentDetailFace(
+		int face,
+		int edgeVertexA,
+		int edgeVertexB,
+		int type,
+		int[] detailTypes,
+		boolean[] sampleable,
+		int[] faceX,
+		int[] faceY,
+		int[] faceZ)
+	{
+		for (int otherFace = 0; otherFace < detailTypes.length; ++otherFace)
+		{
+			if (otherFace == face || !sampleable[otherFace]
+				|| detailTypes[otherFace] != type)
+			{
+				continue;
+			}
+			boolean hasA = faceX[otherFace] == edgeVertexA
+				|| faceY[otherFace] == edgeVertexA
+				|| faceZ[otherFace] == edgeVertexA;
+			boolean hasB = faceX[otherFace] == edgeVertexB
+				|| faceY[otherFace] == edgeVertexB
+				|| faceZ[otherFace] == edgeVertexB;
+			if (hasA && hasB)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static float pointSegmentDistanceSquared(
+		float pointX,
+		float pointZ,
+		float edgeAX,
+		float edgeAZ,
+		float edgeBX,
+		float edgeBZ)
+	{
+		float edgeX = edgeBX - edgeAX;
+		float edgeZ = edgeBZ - edgeAZ;
+		float lengthSquared = edgeX * edgeX + edgeZ * edgeZ;
+		if (lengthSquared <= 0.0001f)
+		{
+			float dx = pointX - edgeAX;
+			float dz = pointZ - edgeAZ;
+			return dx * dx + dz * dz;
+		}
+		float projection = ((pointX - edgeAX) * edgeX
+			+ (pointZ - edgeAZ) * edgeZ) / lengthSquared;
+		projection = Math.max(0.0f, Math.min(1.0f, projection));
+		float dx = pointX - (edgeAX + edgeX * projection);
+		float dz = pointZ - (edgeAZ + edgeZ * projection);
+		return dx * dx + dz * dz;
+	}
+
 	private static float modelFaceHeight(float sampleX, float sampleZ, int face,
 		int[] faceX, int[] faceY, int[] faceZ,
 		int[] vertexX, int[] vertexY, int[] vertexZ)
@@ -516,31 +686,214 @@ class SceneUploader
 	}
 
 	private static int putSurfaceDetailAnchor(float[] anchors, int writeOffset,
-		float x, float y, float z, float seed, SurfaceDetailMaterial material)
+		float x, float y, float z, float geometrySeed, SurfaceDetailMaterial material)
 	{
 		anchors[writeOffset++] = x;
 		anchors[writeOffset++] = y;
 		anchors[writeOffset++] = z;
-		anchors[writeOffset++] = seed;
+		anchors[writeOffset++] = geometrySeed;
 		anchors[writeOffset++] = material.packedHsl;
 		anchors[writeOffset++] = material.type;
 		return writeOffset;
 	}
 
-	private static int surfaceAnchorCount(int type, int worldTileX, int worldTileZ)
+	static int surfaceAnchorCount(int type, int worldTileX, int worldTileZ)
 	{
 		int hash = surfaceHash(worldTileX, worldTileZ, 0, type * 53);
-		if (type == SURFACE_DETAIL_GRASS)
+		switch (type)
 		{
-			return 7 + (hash & 1);
+			case SURFACE_DETAIL_GRASS:
+				return 9 + Math.floorMod(hash, 3);
+			case SURFACE_DETAIL_PEBBLE:
+				return 4 + (hash & 1);
+			case SURFACE_DETAIL_SAND:
+			case SURFACE_DETAIL_DIRT:
+				return 2;
+			default:
+				return 0;
 		}
-		return 2 + Math.floorMod(hash, 3);
 	}
 
-	private static SurfaceDetailMaterial surfaceMaterial(SceneTilePaint paint)
+	static int surfaceDetailMaxSlope(int type)
 	{
-		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(paint);
-		if (!surfaceMaterial.supportsSurfaceDetails())
+		switch (type)
+		{
+			case SURFACE_DETAIL_GRASS:
+				return 72;
+			case SURFACE_DETAIL_PEBBLE:
+				return 48;
+			case SURFACE_DETAIL_SAND:
+				return 32;
+			case SURFACE_DETAIL_DIRT:
+				return 48;
+			default:
+				return -1;
+		}
+	}
+
+	/**
+	 * Returns a deterministic stratified coordinate inside one terrain tile.
+	 * Grass may approach the bank slightly more closely; all opaque scatter keeps
+	 * a wider footprint margin so its generated pieces do not spill onto docks,
+	 * water, or an adjacent material.
+	 */
+	static float surfaceSampleCoordinate(int type, int anchor, boolean xAxis,
+		int worldTileX, int worldTileZ, int level)
+	{
+		int columns;
+		int rows;
+		int step;
+		float margin;
+		switch (type)
+		{
+			case SURFACE_DETAIL_GRASS:
+				columns = 4;
+				rows = 3;
+				step = 5;
+				margin = 0.07f;
+				break;
+			case SURFACE_DETAIL_PEBBLE:
+				columns = 3;
+				rows = 2;
+				step = 5;
+				margin = 0.11f;
+				break;
+			case SURFACE_DETAIL_SAND:
+			case SURFACE_DETAIL_DIRT:
+				columns = 2;
+				rows = 2;
+				step = 3;
+				margin = 0.11f;
+				break;
+			default:
+				return 0.5f;
+		}
+
+		int cellCount = columns * rows;
+		int cellOffset = Math.floorMod(surfaceHash(worldTileX, worldTileZ,
+			level, 307 + type * 31), cellCount);
+		int cell = Math.floorMod(cellOffset + Math.max(anchor, 0) * step, cellCount);
+		int coordinate = xAxis ? cell % columns : cell / columns;
+		int dimension = xAxis ? columns : rows;
+		int jitterSample = 401 + type * 67 + Math.max(anchor, 0) * 2
+			+ (xAxis ? 0 : 1);
+		float jitter = 0.18f + hashUnit(surfaceHash(worldTileX, worldTileZ,
+			level, jitterSample)) * 0.64f;
+		float stratified = (coordinate + jitter) / dimension;
+		return margin + stratified * (1.0f - margin * 2.0f);
+	}
+
+	static float surfaceGeometrySeed(int worldTileX, int worldTileZ, int level,
+		int type, int anchor)
+	{
+		// The draw owner avalanches this stable seed before density selection rather
+		// than thresholding it directly. That preserves the full range of plant
+		// silhouettes, rock profiles, and color variation at every density setting.
+		return hashUnit(surfaceHash(worldTileX, worldTileZ, level,
+			701 + type * 97 + anchor * 11));
+	}
+
+	static int decodeTerrainDefinitionId(short encodedId)
+	{
+		return (encodedId & 0xffff) - 1;
+	}
+
+	static int sceneToWorldTile(int sceneBase, int extendedSceneCoordinate,
+		int sceneOffset)
+	{
+		return sceneBase + extendedSceneCoordinate - sceneOffset;
+	}
+
+	static int paintTerrainLayer(int underlayId, int overlayId)
+	{
+		return overlayId >= 0
+			? TERRAIN_LAYER_OVERLAY
+			: underlayId >= 0
+				? TERRAIN_LAYER_UNDERLAY
+				: NO_TERRAIN_DEFINITION;
+	}
+
+	static boolean surfaceDetailTileEligible(
+		int storagePlane,
+		int tilePlane,
+		int renderLevel,
+		int tileFlags,
+		int bridgeFlags,
+		int roofId,
+		boolean hasBridge)
+	{
+		return storagePlane == 0
+			&& tilePlane == 0
+			&& renderLevel == 0
+			&& (tileFlags & Constants.TILE_FLAG_UNDER_ROOF) == 0
+			&& (bridgeFlags & Constants.TILE_FLAG_BRIDGE) == 0
+			&& roofId <= 0
+			&& !hasBridge;
+	}
+
+	static int eligibleSurfaceDetailType(
+		SurfaceMaterial material,
+		int texture,
+		int layer,
+		int underlayId,
+		int overlayId)
+	{
+		boolean knownLayer = layer == TERRAIN_LAYER_UNDERLAY
+			|| layer == TERRAIN_LAYER_OVERLAY;
+		if (!material.supportsSurfaceDetails()
+			|| !knownLayer && (material != SurfaceMaterial.GRASS
+				|| texture != TURF_TEXTURE)
+			|| layer == TERRAIN_LAYER_OVERLAY && isCarpetOverlay(overlayId))
+		{
+			return SURFACE_DETAIL_NONE;
+		}
+
+		boolean naturalUnderlay = layer == TERRAIN_LAYER_UNDERLAY
+			&& underlayId >= 0;
+		switch (material)
+		{
+			case GRASS:
+				return naturalUnderlay
+					|| layer == TERRAIN_LAYER_OVERLAY && overlayId == GRASS_OVERLAY
+					|| texture == TURF_TEXTURE
+					? SURFACE_DETAIL_GRASS : SURFACE_DETAIL_NONE;
+			case STONE:
+				return naturalUnderlay && texture < 0
+					? SURFACE_DETAIL_PEBBLE : SURFACE_DETAIL_NONE;
+			case SAND:
+				return naturalUnderlay
+					|| layer == TERRAIN_LAYER_OVERLAY && isSandOverlay(overlayId)
+					? SURFACE_DETAIL_SAND : SURFACE_DETAIL_NONE;
+			case DIRT:
+				return naturalUnderlay && texture < 0
+					? SURFACE_DETAIL_DIRT : SURFACE_DETAIL_NONE;
+			default:
+				return SURFACE_DETAIL_NONE;
+		}
+	}
+
+	private static boolean isSandOverlay(int overlayId)
+	{
+		return overlayId == 25 || overlayId == 26 || overlayId == 76;
+	}
+
+	private static boolean isCarpetOverlay(int overlayId)
+	{
+		return overlayId == 13 || overlayId == 163;
+	}
+
+	private static SurfaceDetailMaterial surfaceMaterial(
+		SceneTilePaint paint, int underlayId, int overlayId,
+		int worldX, int worldY, int plane)
+	{
+		int layer = paintTerrainLayer(underlayId, overlayId);
+		int definitionId = layer == TERRAIN_LAYER_OVERLAY ? overlayId : underlayId;
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaintMatch(
+			paint, layer, definitionId, worldX, worldY, plane).getMaterial();
+		int detailType = eligibleSurfaceDetailType(surfaceMaterial,
+			paint.getTexture(), paintTerrainLayer(underlayId, overlayId),
+			underlayId, overlayId);
+		if (detailType == SURFACE_DETAIL_NONE)
 		{
 			return null;
 		}
@@ -566,33 +919,40 @@ class SceneUploader
 				return null;
 			}
 			int packedHsl = SurfaceMaterialClassifier.rgbToPackedHsl(rgb);
-			return new SurfaceDetailMaterial(
-				surfaceMaterial.getDetailType(), packedHsl);
+			return new SurfaceDetailMaterial(detailType, packedHsl);
 		}
 
-		return surfaceMaterialFromHsl(colors, 3);
+		return new SurfaceDetailMaterial(detailType,
+			averagePackedHsl(colors, detailType));
 	}
 
 	private static SurfaceDetailMaterial surfaceMaterial(
 		SceneTileModel model, int face,
-		int texture, int colorA, int colorB, int colorC)
+		int texture, int colorA, int colorB, int colorC,
+		int underlayId, int overlayId,
+		int worldX, int worldY, int plane)
 	{
 		int[] colors = {colorA, colorB, colorC};
-		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyTerrainFace(
-			model, face, texture, colorA, colorB, colorC);
-		if (!surfaceMaterial.supportsSurfaceDetails())
+		int layer = SurfaceMaterialClassifier.terrainLayerForFace(
+			model.getShape(), face);
+		int definitionId = layer == TERRAIN_LAYER_OVERLAY ? overlayId : underlayId;
+		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier
+			.classifyTerrainFaceMatch(model, face, texture,
+				colorA, colorB, colorC, layer, definitionId,
+				worldX, worldY, plane).getMaterial();
+		int detailType = eligibleSurfaceDetailType(surfaceMaterial, texture,
+			layer, underlayId, overlayId);
+		if (detailType == SURFACE_DETAIL_NONE)
 		{
 			return null;
 		}
 		if (texture >= 0)
 		{
-			int layer = SurfaceMaterialClassifier.terrainLayerForFace(
-				model.getShape(), face);
 			int rgb = layer == 1 ? model.getModelOverlay()
 				: layer == 0 ? model.getModelUnderlay() : -1;
 			if (rgb >= 0 && rgb <= 0xffffff)
 			{
-				return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(),
+				return new SurfaceDetailMaterial(detailType,
 					SurfaceMaterialClassifier.rgbToPackedHsl(rgb));
 			}
 
@@ -601,28 +961,10 @@ class SceneUploader
 			// hue/saturation and generating a black detail instance.
 			int luminance = Math.max(0, Math.min(127,
 				Math.round(((colorA & 127) + (colorB & 127) + (colorC & 127)) / 3.0f)));
-			return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(), luminance);
+			return new SurfaceDetailMaterial(detailType, luminance);
 		}
-		return new SurfaceDetailMaterial(surfaceMaterial.getDetailType(),
-			averagePackedHsl(colors, surfaceMaterial.getDetailType()));
-	}
-
-	private static SurfaceDetailMaterial surfaceMaterialFromHsl(int[] colors,
-		int requiredMatches)
-	{
-		int grass = 0;
-		int pebble = 0;
-		for (int color : colors)
-		{
-			int type = SurfaceMaterialClassifier.classifyPackedHsl(color).getDetailType();
-			grass += type == SURFACE_DETAIL_GRASS ? 1 : 0;
-			pebble += type == SURFACE_DETAIL_PEBBLE ? 1 : 0;
-		}
-		int type = grass >= requiredMatches ? SURFACE_DETAIL_GRASS
-			: pebble >= requiredMatches ? SURFACE_DETAIL_PEBBLE
-			: SURFACE_DETAIL_NONE;
-		return type == SURFACE_DETAIL_NONE ? null
-			: new SurfaceDetailMaterial(type, averagePackedHsl(colors, type));
+		return new SurfaceDetailMaterial(detailType,
+			averagePackedHsl(colors, detailType));
 	}
 
 	private static boolean validPackedHsl(int color)
@@ -902,29 +1244,29 @@ class SceneUploader
 		if (wallObject != null && renderCallbackManager.drawObject(scene, wallObject))
 		{
 			Renderable renderable1 = wallObject.getRenderable1();
-			uploadZoneRenderable(renderable1, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject.getId(), vertexBuffer, ab);
+			uploadZoneRenderable(scene, renderable1, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject, vertexBuffer, ab);
 
 			Renderable renderable2 = wallObject.getRenderable2();
-			uploadZoneRenderable(renderable2, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject.getId(), vertexBuffer, ab);
+			uploadZoneRenderable(scene, renderable2, zone, 0, wallObject.getX(), wallObject.getZ(), wallObject.getY(), -1, -1, -1, -1, wallObject, vertexBuffer, ab);
 		}
 
 		DecorativeObject decorativeObject = t.getDecorativeObject();
 		if (decorativeObject != null && renderCallbackManager.drawObject(scene, decorativeObject))
 		{
 			Renderable renderable = decorativeObject.getRenderable();
-			uploadZoneRenderable(renderable, zone, 0, decorativeObject.getX() + decorativeObject.getXOffset(), decorativeObject.getZ(), decorativeObject.getY() + decorativeObject.getYOffset(), -1, -1, -1, -1, decorativeObject.getId(), vertexBuffer, ab);
+			uploadZoneRenderable(scene, renderable, zone, 0, decorativeObject.getX() + decorativeObject.getXOffset(), decorativeObject.getZ(), decorativeObject.getY() + decorativeObject.getYOffset(), -1, -1, -1, -1, decorativeObject, vertexBuffer, ab);
 
 			Renderable renderable2 = decorativeObject.getRenderable2();
-			uploadZoneRenderable(renderable2, zone, 0, decorativeObject.getX() + decorativeObject.getXOffset2(), decorativeObject.getZ(), decorativeObject.getY() + decorativeObject.getYOffset2(), -1, -1, -1, -1, decorativeObject.getId(), vertexBuffer, ab);
+			uploadZoneRenderable(scene, renderable2, zone, 0, decorativeObject.getX() + decorativeObject.getXOffset2(), decorativeObject.getZ(), decorativeObject.getY() + decorativeObject.getYOffset2(), -1, -1, -1, -1, decorativeObject, vertexBuffer, ab);
 		}
 
 		GroundObject groundObject = t.getGroundObject();
 		if (groundObject != null && renderCallbackManager.drawObject(scene, groundObject))
 		{
 			Renderable renderable = groundObject.getRenderable();
-			uploadZoneRenderable(renderable, zone, 0, groundObject.getX(), groundObject.getZ(), groundObject.getY(),
+			uploadZoneRenderable(scene, renderable, zone, 0, groundObject.getX(), groundObject.getZ(), groundObject.getY(),
 				-1, -1, -1, -1,
-				groundObject.getId(),
+				groundObject,
 				vertexBuffer, ab);
 		}
 
@@ -949,9 +1291,9 @@ class SceneUploader
 			}
 
 			Renderable renderable = gameObject.getRenderable();
-			uploadZoneRenderable(renderable, zone, gameObject.getModelOrientation(), gameObject.getX(), gameObject.getZ(), gameObject.getY(),
+			uploadZoneRenderable(scene, renderable, zone, gameObject.getModelOrientation(), gameObject.getX(), gameObject.getZ(), gameObject.getY(),
 				min.getX(), min.getY(), max.getX(), max.getY(),
-				gameObject.getId(),
+				gameObject,
 				vertexBuffer, ab);
 		}
 
@@ -1005,21 +1347,33 @@ class SceneUploader
 		z.sizeO += faceCount;
 	}
 
-	private void uploadZoneRenderable(Renderable r, Zone zone, int orient, int x, int y, int z, int lx, int lz, int ux, int uz, int id, GpuIntBuffer vb, GpuIntBuffer ab)
+	private void uploadZoneRenderable(Scene scene, Renderable r, Zone zone, int orient,
+		int x, int y, int z, int lx, int lz, int ux, int uz,
+		TileObject tileObject, GpuIntBuffer vb, GpuIntBuffer ab)
 	{
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int objectWorldX = sceneToWorldTile(scene.getBaseX(),
+			tileObject.getX() >> 7, sceneOffset);
+		int objectWorldY = sceneToWorldTile(scene.getBaseY(),
+			tileObject.getY() >> 7, sceneOffset);
 		int pos = zone.vboA != null ? zone.vboA.vb.position() : 0;
 		Model model = null;
 		if (r instanceof Model)
 		{
 			model = (Model) r;
-			uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab);
+			uploadStaticModel(model, orient, x - basex, y, z - basez,
+				tileObject.getId(), objectWorldX, objectWorldY,
+				tileObject.getPlane(), vb, ab);
 		}
 		else if (r instanceof DynamicObject)
 		{
 			model = ((DynamicObject) r).getModelZbuf();
 			if (model != null)
 			{
-				uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab);
+				uploadStaticModel(model, orient, x - basex, y, z - basez,
+					tileObject.getId(), objectWorldX, objectWorldY,
+					tileObject.getPlane(), vb, ab);
 			}
 		}
 		int endpos = zone.vboA != null ? zone.vboA.vb.position() : 0;
@@ -1040,7 +1394,7 @@ class SceneUploader
 			zone.addAlphaModel(zone.glVaoA, model, pos, endpos,
 				x - basex, y, z - basez,
 				lx, lz, ux, uz,
-				rid, level, id);
+				rid, level, tileObject.getId());
 		}
 	}
 
@@ -1098,8 +1452,22 @@ class SceneUploader
 		final int lz3 = lz + Perspective.LOCAL_TILE_SIZE;
 		final int hsl3 = nwColor;
 
-		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(tile);
-		int tex = surfaceMaterial.packTextureCode(tile.getTexture() + 1);
+		int terrainPlane = sceneTile.getRenderLevel();
+		int underlayId = decodeTerrainDefinitionId(
+			scene.getUnderlayIds()[terrainPlane][tileX][tileY]);
+		int overlayId = decodeTerrainDefinitionId(
+			scene.getOverlayIds()[terrainPlane][tileX][tileY]);
+		int terrainLayer = paintTerrainLayer(underlayId, overlayId);
+		int definitionId = terrainLayer == TERRAIN_LAYER_OVERLAY
+			? overlayId : underlayId;
+		int sceneOffset = scene.getWorldViewId() == WorldView.TOPLEVEL
+			? GpuPlugin.SCENE_OFFSET : 0;
+		int worldTileX = sceneToWorldTile(scene.getBaseX(), tileX, sceneOffset);
+		int worldTileY = sceneToWorldTile(scene.getBaseY(), tileY, sceneOffset);
+		SurfaceMaterialRuleCatalog.Match materialMatch = SurfaceMaterialClassifier.classifyPaintMatch(
+			tile, terrainLayer, definitionId,
+			worldTileX, worldTileY, sceneTile.getPlane());
+		int tex = materialMatch.packTextureCode(tile.getTexture() + 1);
 		int shoreEdges = TERRAIN_FLAG;
 		if (isWaterTexture(tile.getTexture()))
 		{
@@ -1171,7 +1539,8 @@ class SceneUploader
 		int nwHeight = tileHeights[renderLevel][tileX][tileY + 1]
 			+ waterBedDepthAt(scene, storagePlane, renderLevel, tileX, tileY + 1);
 		int tileSize = Perspective.LOCAL_TILE_SIZE;
-		int texture = SurfaceMaterial.SAND.packTextureCode(material.texture + 1);
+		int texture = SurfaceMaterial.SAND.packTextureCode(material.texture + 1,
+			SurfaceMaterial.SAND.getDefaultAuthoredVariant());
 		int terrainFlags = waterBedTerrainFlags(material);
 
 		vertexBuffer.put22224(lx + tileSize, neHeight, lz + tileSize,
@@ -2091,6 +2460,13 @@ class SceneUploader
 			? GpuPlugin.SCENE_OFFSET : 0;
 		int sceneTileX = tilePoint.getX() + sceneOffset;
 		int sceneTileY = tilePoint.getY() + sceneOffset;
+		int terrainPlane = sceneTile.getRenderLevel();
+		int underlayId = decodeTerrainDefinitionId(
+			scene.getUnderlayIds()[terrainPlane][sceneTileX][sceneTileY]);
+		int overlayId = decodeTerrainDefinitionId(
+			scene.getOverlayIds()[terrainPlane][sceneTileX][sceneTileY]);
+		int worldTileX = sceneToWorldTile(scene.getBaseX(), sceneTileX, sceneOffset);
+		int worldTileY = sceneToWorldTile(scene.getBaseY(), sceneTileY, sceneOffset);
 		boolean modelHasWater = false;
 		if (triangleTextures != null)
 		{
@@ -2147,9 +2523,15 @@ class SceneUploader
 			boolean waterFace = triangleTextures != null
 				&& isWaterTexture(triangleTextures[i]);
 			int texture = triangleTextures != null ? triangleTextures[i] : -1;
-			SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyTerrainFace(
-				sceneTileModel, i, texture, hsl0, hsl1, hsl2);
-			int tex = surfaceMaterial.packTextureCode(texture + 1);
+			int terrainLayer = SurfaceMaterialClassifier.terrainLayerForFace(
+				sceneTileModel.getShape(), i);
+			int definitionId = terrainLayer == TERRAIN_LAYER_OVERLAY
+				? overlayId : underlayId;
+			SurfaceMaterialRuleCatalog.Match materialMatch = SurfaceMaterialClassifier
+				.classifyTerrainFaceMatch(sceneTileModel, i, texture,
+					hsl0, hsl1, hsl2, terrainLayer, definitionId,
+					worldTileX, worldTileY, sceneTile.getPlane());
+			int tex = materialMatch.packTextureCode(texture + 1);
 			int terrainFlags = TERRAIN_FLAG;
 			if (waterFace)
 			{
@@ -2203,7 +2585,8 @@ class SceneUploader
 						sceneTileY + (vertexZ[vertex2] - lz)
 							/ (float) Perspective.LOCAL_TILE_SIZE);
 					int bedTexture = SurfaceMaterial.SAND.packTextureCode(
-						waterBedMaterial.texture + 1);
+						waterBedMaterial.texture + 1,
+						SurfaceMaterial.SAND.getDefaultAuthoredVariant());
 					int bedColor = waterBedMaterial.representativeColor;
 					int bedFlags = waterBedTerrainFlags(waterBedMaterial);
 
@@ -2231,7 +2614,9 @@ class SceneUploader
 	}
 
 	// scene upload
-	private int uploadStaticModel(Model model, int orient, int x, int y, int z, GpuIntBuffer vb, GpuIntBuffer ab)
+	private int uploadStaticModel(Model model, int orient, int x, int y, int z,
+		int objectId, int worldX, int worldY, int plane,
+		GpuIntBuffer vb, GpuIntBuffer ab)
 	{
 		final int vertexCount = model.getVerticesCount();
 		final int triangleCount = model.getFaceCount();
@@ -2332,7 +2717,8 @@ class SceneUploader
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
 			int textureId = faceTextures != null ? faceTextures[face] : -1;
-			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+			int texture = SurfaceMaterialClassifier.classifyObjectMatch(
+				textureId, objectId, worldX, worldY, plane)
 				.packTextureCode(textureId + 1);
 			GpuIntBuffer buf = alpha ? ab : vb;
 

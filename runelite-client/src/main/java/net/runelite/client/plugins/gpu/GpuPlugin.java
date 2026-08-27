@@ -77,6 +77,7 @@ import net.runelite.client.plugins.gpu.config.UIScalingMode;
 import net.runelite.client.plugins.gpu.template.Template;
 import net.runelite.client.ui.ClientUI;
 import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.rlawt.AWTContext;
 import org.lwjgl.opengl.GL;
 import static org.lwjgl.opengl.GL33C.*;
@@ -134,6 +135,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private TextureManager textureManager;
 
 	@Inject
+	private AuthoredMaterialAtlas authoredMaterialAtlas;
+
+	@Inject
 	private RegionManager regionManager;
 
 	@Inject
@@ -144,6 +148,14 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	@Inject
 	private RenderCallbackManager renderCallbackManager;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private MaterialInspectorOverlay materialInspectorOverlay;
+
+	private boolean materialInspectorOverlayRegistered;
 
 	private Canvas canvas;
 	private AWTContext awtContext;
@@ -225,7 +237,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniVolumetricCompositeSceneColor, uniVolumetricCompositeSceneDepth;
 	private int uniVolumetricCompositeRays, uniVolumetricCompositeSceneUvTransform;
 	private int uniVolumetricCompositeRayUvTransform, uniVolumetricCompositeRayTexelSize;
-	private int uniGrassProjection, uniGrassCamera, uniGrassFocus;
+	private int uniGrassProjection, uniGrassCamera, uniGrassFocus, uniGrassWorldOffset;
 	private int uniGrassTime, uniGrassDrawRadius, uniGrassHeightScale, uniGrassWindStrength;
 	private int uniGrassWeatherModeVert, uniGrassLightDirection;
 	private int uniGrassLightIntensity, uniGrassAmbientLight;
@@ -235,6 +247,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniGrassShadowMap, uniGrassShadowLightProj;
 	private int uniGrassShadowsEnabled, uniGrassShadowStrength;
 	private int uniGrassMaterialDebugMode;
+	private int uniGrassMaterialLightingEnabled, uniGrassMaterialLightingStrength;
 	private int uniGrassWetSurfacesEnabled, uniGrassWetSurfaceStrength;
 	private int uniWaterProjection, uniWaterBase;
 	private int uniWaterSceneColor, uniWaterSceneDepth, uniWaterSkyTexture;
@@ -496,6 +509,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 		clientUploader = new SceneUploader(renderCallbackManager, config);
 		mapUploader = new SceneUploader(renderCallbackManager, config);
+		syncMaterialInspectorOverlay();
 		clientThread.invoke(() ->
 		{
 			try
@@ -571,6 +585,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initSkyVao();
 				initGrassVao();
 				initProgram();
+				authoredMaterialAtlas.initialize();
 				initInterfaceTexture();
 				initSkyTextures();
 				initShadowMap();
@@ -668,6 +683,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	@Override
 	protected void shutDown()
 	{
+		removeMaterialInspectorOverlay();
 		weatherAudio.shutdown();
 		clientThread.invoke(() ->
 		{
@@ -690,6 +706,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				shutdownGrassVao();
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
+				authoredMaterialAtlas.shutdown();
 				shutdownProgram();
 				shutdownVao();
 				shutdownBuffers();
@@ -727,7 +744,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	{
 		if (configChanged.getGroup().equals(GpuPluginConfig.GROUP))
 		{
-			if (configChanged.getKey().equals("unlockFps")
+			if (configChanged.getKey().equals("materialInspector"))
+			{
+				syncMaterialInspectorOverlay();
+			}
+			else if (configChanged.getKey().equals("unlockFps")
 				|| configChanged.getKey().equals("vsyncMode")
 				|| configChanged.getKey().equals("fpsTarget"))
 			{
@@ -1506,6 +1527,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniGrassProjection = glGetUniformLocation(glGrassProgram, "projection");
 		uniGrassCamera = glGetUniformLocation(glGrassProgram, "cameraPosition");
 		uniGrassFocus = glGetUniformLocation(glGrassProgram, "focusPosition");
+		uniGrassWorldOffset = glGetUniformLocation(glGrassProgram, "worldOffset");
 		uniGrassTime = glGetUniformLocation(glGrassProgram, "time");
 		uniGrassDrawRadius = glGetUniformLocation(glGrassProgram, "drawRadius");
 		uniGrassHeightScale = glGetUniformLocation(glGrassProgram, "heightScale");
@@ -1527,6 +1549,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniGrassShadowsEnabled = glGetUniformLocation(glGrassProgram, "shadowsEnabled");
 		uniGrassShadowStrength = glGetUniformLocation(glGrassProgram, "shadowStrength");
 		uniGrassMaterialDebugMode = glGetUniformLocation(glGrassProgram, "materialDebugMode");
+		uniGrassMaterialLightingEnabled = glGetUniformLocation(
+			glGrassProgram, "materialLightingEnabled");
+		uniGrassMaterialLightingStrength = glGetUniformLocation(
+			glGrassProgram, "materialLightingStrength");
 		uniGrassWetSurfacesEnabled = glGetUniformLocation(glGrassProgram, "wetSurfacesEnabled");
 		uniGrassWetSurfaceStrength = glGetUniformLocation(glGrassProgram, "wetSurfaceStrength");
 		uniWaterProjection = glGetUniformLocation(glWaterProgram, "projection");
@@ -1628,6 +1654,31 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			glDeleteProgram(glWaterProgram);
 			glWaterProgram = 0;
+		}
+	}
+
+	private void syncMaterialInspectorOverlay()
+	{
+		if (config.materialInspector())
+		{
+			if (!materialInspectorOverlayRegistered)
+			{
+				overlayManager.add(materialInspectorOverlay);
+				materialInspectorOverlayRegistered = true;
+			}
+		}
+		else
+		{
+			removeMaterialInspectorOverlay();
+		}
+	}
+
+	private void removeMaterialInspectorOverlay()
+	{
+		if (materialInspectorOverlayRegistered)
+		{
+			overlayManager.remove(materialInspectorOverlay);
+			materialInspectorOverlayRegistered = false;
 		}
 	}
 
@@ -3697,6 +3748,23 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 	}
 
+	@VisibleForTesting
+	static float surfaceDetailSelection(float geometrySeed, int detailType)
+	{
+		// Density selection must not compare the geometry seed directly. Doing so
+		// truncates shape/color variation whenever density is below 100%.
+		// Avalanche the stable absolute-world geometry seed instead of scene-local
+		// GPU coordinates, so a map rebase cannot reshuffle visible details.
+		int hash = Float.floatToRawIntBits(geometrySeed)
+			^ detailType * 0x27d4eb2d ^ 0x45d9f3b;
+		hash ^= hash >>> 16;
+		hash *= 0x7feb352d;
+		hash ^= hash >>> 15;
+		hash *= 0x846ca68b;
+		hash ^= hash >>> 16;
+		return (hash & 0x00ffffff) / 16777216.0f;
+	}
+
 	private void drawSurfaceDetails(Scene scene)
 	{
 		if ((!config.flowingGrass() && !config.terrainDetail())
@@ -3713,14 +3781,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			return;
 		}
 
-		float grassRadius = config.grassDistance() * (float) Perspective.LOCAL_TILE_SIZE;
-		float stoneRadius = config.terrainDetailDistance()
+		// Clamp stale profiles that predate the current UI ranges. A persisted
+		// 24-tile value otherwise defeats the deliberate detail-pass cost ceiling.
+		float grassRadius = Math.min(config.grassDistance(), 18)
 			* (float) Perspective.LOCAL_TILE_SIZE;
+		float stoneRadius = Math.min(config.terrainDetailDistance(), 18)
+			* (float) Perspective.LOCAL_TILE_SIZE;
+		float scatterRadius = Math.min(stoneRadius,
+			9.0f * Perspective.LOCAL_TILE_SIZE);
 		float maximumRadius = Math.max(
 			config.flowingGrass() ? grassRadius : 0.0f,
 			config.terrainDetail() ? stoneRadius : 0.0f);
 		float grassDensity = config.grassDensity() / 100.0f;
-		float stoneDensity = config.terrainDetailStrength() / 100.0f;
+		float detailDensity = config.terrainDetailStrength() / 100.0f;
 		int offset = SCENE_OFFSET >> 3;
 		int minimumLevel = Math.max(0, ctx.minLevel);
 		int maximumLevel = Math.min(3, ctx.maxLevel);
@@ -3763,18 +3836,25 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 						anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
 					{
 						float seed = zone.surfaceDetailAnchors[anchor + 3];
-						boolean grassDetail = zone.surfaceDetailAnchors[anchor + 5] < 0.5f;
+						int detailType = Math.max(0, Math.min(3,
+							Math.round(zone.surfaceDetailAnchors[anchor + 5])));
+						boolean grassDetail = detailType == 0;
 						boolean enabled = grassDetail
 							? config.flowingGrass() : config.terrainDetail();
-						float density = grassDetail ? grassDensity : stoneDensity;
-						float drawRadius = grassDetail ? grassRadius : stoneRadius;
-						if (!enabled || seed > density)
+						float worldX = baseX + zone.surfaceDetailAnchors[anchor];
+						float worldZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
+						float density = detailType == 0 ? grassDensity
+							: detailType == 1 ? detailDensity * 0.82f
+								: detailType == 2 ? detailDensity * 0.38f
+									: detailDensity * 0.25f;
+						float drawRadius = detailType <= 1
+							? (grassDetail ? grassRadius : stoneRadius)
+							: scatterRadius;
+						if (!enabled || surfaceDetailSelection(seed, detailType) > density)
 						{
 							continue;
 						}
 
-						float worldX = baseX + zone.surfaceDetailAnchors[anchor];
-						float worldZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
 						float dx = worldX - atmosphereAnchorX;
 						float dz = worldZ - atmosphereAnchorZ;
 						if (dx * dx + dz * dz > drawRadius * drawRadius)
@@ -3849,9 +3929,13 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniformMatrix4fv(uniGrassProjection, false, weatherProjection);
 		glUniform3f(uniGrassCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
 		glUniform3f(uniGrassFocus, atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ);
+		glUniform2f(uniGrassWorldOffset,
+			scene.getBaseX() * (float) Perspective.LOCAL_TILE_SIZE,
+			scene.getBaseY() * (float) Perspective.LOCAL_TILE_SIZE);
 		glUniform1f(uniGrassTime,
 			(now - grassTimeOriginMillis) / 1000.0f);
-		glUniform2f(uniGrassDrawRadius, grassRadius, stoneRadius);
+		glUniform4f(uniGrassDrawRadius,
+			grassRadius, stoneRadius, scatterRadius, scatterRadius);
 		glUniform1f(uniGrassHeightScale, 1.0f);
 		glUniform1f(uniGrassWindStrength, wind);
 		glUniform1i(uniGrassWeatherModeVert, weather.ordinal());
@@ -3880,6 +3964,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform1f(uniGrassShadowStrength,
 			config.shadowStrength() / 100.0f);
 		glUniform1i(uniGrassMaterialDebugMode, config.materialDebugMode().getId());
+		glUniform1i(uniGrassMaterialLightingEnabled,
+			config.materialLighting() ? 1 : 0);
+		glUniform1f(uniGrassMaterialLightingStrength,
+			config.materialLightingStrength() / 100.0f);
 		glUniform1i(uniGrassWetSurfacesEnabled, config.wetSurfaces() ? 1 : 0);
 		glUniform1f(uniGrassWetSurfaceStrength,
 			config.wetSurfaceStrength() / 100.0f);
@@ -4520,6 +4608,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
+		var worldLocation = tileObject.getWorldLocation();
 		if (m.getFaceTransparencies() == null)
 		{
 			RenderThread rt = rts[renderThreadId + 1];
@@ -4529,7 +4618,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				return;
 			}
 
-			rt.modelUploader.uploadTempModel(m, orient, x, y, z, o.vbo.vb);
+			rt.modelUploader.uploadTempModel(m, orient, x, y, z, o.vbo.vb,
+				tileObject.getId(), worldLocation.getX(), worldLocation.getY(),
+				worldLocation.getPlane());
 			o.addRange(ctx.projection, scene, 0);
 		}
 		else
@@ -4549,7 +4640,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			int start = a.vbo.vb.position();
 			try
 			{
-				sorter.uploadSortedModel(rt, worldProjection, m, orient, x, y, z, o.vbo.vb, a.vbo.vb, false);
+				sorter.uploadSortedModel(rt, worldProjection, m, orient, x, y, z,
+					o.vbo.vb, a.vbo.vb, false, tileObject.getId(),
+					worldLocation.getX(), worldLocation.getY(), worldLocation.getPlane());
 			}
 			catch (Exception ex)
 			{
@@ -4590,6 +4683,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		}
 
 		Renderable renderable = gameObject.getRenderable();
+		var worldLocation = gameObject.getWorldLocation();
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		int renderMode = renderable.getRenderMode();
 		if (renderMode == Renderable.RENDERMODE_SORTED_NO_DEPTH || m.getFaceTransparencies() != null || m.getTransparency() != 0)
@@ -4603,7 +4697,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			m.calculateBoundsCylinder();
 			try
 			{
-				uploader.uploadSortedModel(rt, worldProjection, m, orient, x, y, z, o.vbo.vb, a.vbo.vb, renderMode == Renderable.RENDERMODE_SORTED_NO_DEPTH);
+				uploader.uploadSortedModel(rt, worldProjection, m, orient, x, y, z,
+					o.vbo.vb, a.vbo.vb,
+					renderMode == Renderable.RENDERMODE_SORTED_NO_DEPTH,
+					gameObject.getId(), worldLocation.getX(), worldLocation.getY(),
+					worldLocation.getPlane());
 			}
 			catch (Exception ex)
 			{
@@ -4628,7 +4726,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			RenderThread rt = rts[0];
 			VAO o = rt.vaoO.get(size);
 			ModelUploader uploader = rt.modelUploader;
-			uploader.uploadTempModel(m, orient, x, y, z, o.vbo.vb);
+			uploader.uploadTempModel(m, orient, x, y, z, o.vbo.vb,
+				gameObject.getId(), worldLocation.getX(), worldLocation.getY(),
+				worldLocation.getPlane());
 			o.addRange(ctx.projection, scene, 0);
 		}
 	}
@@ -5636,7 +5736,23 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	@Subscribe
 	private void onCommandExecuted(CommandExecuted event)
 	{
-		if (event.getCommand().equals("gpumem"))
+		if (event.getCommand().equals("gpumaterialreload"))
+		{
+			try
+			{
+				SurfaceMaterialRuleCatalog.reloadBundled();
+				log.info("Reloaded GPU surface material rules");
+				if (client.getGameState() == GameState.LOGGED_IN)
+				{
+					client.setGameState(GameState.LOADING);
+				}
+			}
+			catch (RuntimeException ex)
+			{
+				log.error("Unable to reload GPU surface material rules", ex);
+			}
+		}
+		else if (event.getCommand().equals("gpumem"))
 		{
 			int totalSzKb = 0;
 			for (int i = 0; i < rts.length; ++i)

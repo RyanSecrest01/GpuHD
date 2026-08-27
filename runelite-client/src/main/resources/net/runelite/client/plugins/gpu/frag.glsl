@@ -945,7 +945,11 @@ void main()
 				? vec3(0.12, 1.0, 0.18)
 				: terrainSurface && fMaterialId == 2
 					? vec3(0.36, 0.72, 1.0)
-					: vec3(0.12, 0.03, 0.04);
+					: terrainSurface && fMaterialId == 3
+						? vec3(1.0, 0.72, 0.18)
+						: terrainSurface && fMaterialId == 4
+							? vec3(0.62, 0.29, 0.10)
+							: vec3(0.12, 0.03, 0.04);
 		}
 		else if (terrainSurface || fMaterialId != 0)
 		{

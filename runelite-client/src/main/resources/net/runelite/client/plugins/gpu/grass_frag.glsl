@@ -19,6 +19,8 @@ uniform mat4 shadowLightProj;
 uniform int shadowsEnabled;
 uniform float shadowStrength;
 uniform int materialDebugMode;
+uniform int materialLightingEnabled;
+uniform float materialLightingStrength;
 uniform int wetSurfacesEnabled;
 uniform float wetSurfaceStrength;
 
@@ -47,6 +49,13 @@ vec3 safeHalfDirection(vec3 lightDir, vec3 viewDir)
 	return lengthSquared > 0.000001
 		? sum * inversesqrt(lengthSquared)
 		: lightDir;
+}
+
+float detailMaterialResponse()
+{
+	return materialLightingEnabled != 0
+		? clamp(materialLightingStrength, 0.0, 1.0)
+		: 0.0;
 }
 
 vec3 unpackGroundHsl()
@@ -86,6 +95,30 @@ vec3 terrainMatchedStone()
 	vec3 color = hslToRgb(stoneHsl);
 	float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
 	return mix(color, vec3(luminance), 0.16);
+}
+
+vec3 terrainMatchedSand()
+{
+	vec3 groundHsl = unpackGroundHsl();
+	vec3 sandHsl = groundHsl;
+	// Preserve the authored beach luminance while nudging tiny fragments toward
+	// warm, fresh sand instead of scattering gray stones along the shoreline.
+	sandHsl.x = mix(groundHsl.x, 8.0, 0.58);
+	sandHsl.y = mix(groundHsl.y, 3.0, 0.52);
+	sandHsl.z = clamp(groundHsl.z * mix(0.98, 1.08, fSeed)
+		+ mix(2.0, 7.0, fSeed), 18.0, 118.0);
+	return hslToRgb(sandHsl);
+}
+
+vec3 terrainMatchedDirt()
+{
+	vec3 groundHsl = unpackGroundHsl();
+	vec3 dirtHsl = groundHsl;
+	dirtHsl.x = mix(groundHsl.x, 7.0, 0.24);
+	dirtHsl.y = clamp(groundHsl.y * mix(0.68, 0.90, fSeed), 0.0, 5.5);
+	dirtHsl.z = clamp(groundHsl.z * mix(0.78, 0.92, fSeed)
+		+ mix(-3.0, 1.5, fSeed), 8.0, 104.0);
+	return hslToRgb(dirtHsl);
 }
 
 float detailEnvironmentEnergy()
@@ -174,7 +207,8 @@ vec3 shadeGrass(
 	// back-light transmission create the sun-catching Unity-like edge shimmer.
 	float normalLight = dot(normal, lightDir);
 	float wrappedDiffuse = smoothstep(0.05, 0.94, normalLight * 0.5 + 0.5);
-	color *= mix(0.91, 1.075, wrappedDiffuse);
+	float materialResponse = detailMaterialResponse();
+	color *= mix(1.0, mix(0.91, 1.075, wrappedDiffuse), materialResponse);
 
 	vec3 halfDirection = safeHalfDirection(lightDir, viewDir);
 	float tangentHalf = clamp(abs(dot(normalize(tangent), halfDirection)), 0.0, 1.0);
@@ -189,7 +223,7 @@ vec3 shadeGrass(
 		* overheadSun * mix(0.52, 1.0, grazingView);
 	float sunEnergy = clamp(lightIntensity * 1.85, 0.0, 1.20)
 		* mix(1.0, 0.18, clamp(nightFactor, 0.0, 1.0))
-		* (1.0 - shadowAmount);
+		* (1.0 - shadowAmount) * materialResponse;
 	color += vec3(0.13, 0.16, 0.075) * anisotropic * sunEnergy;
 	color += vec3(0.075, 0.095, 0.038) * tipSheen * sunEnergy;
 	color += color * vec3(0.13, 0.16, 0.075) * transmission * sunEnergy;
@@ -210,19 +244,57 @@ vec3 shadeStone(
 
 	float normalLight = dot(normal, lightDir);
 	float facetedDiffuse = smoothstep(-0.18, 0.92, normalLight);
-	color *= mix(0.89, 1.075, facetedDiffuse);
+	float materialResponse = detailMaterialResponse();
+	color *= mix(1.0, mix(0.89, 1.075, facetedDiffuse), materialResponse);
 	vec3 halfDirection = safeHalfDirection(lightDir, viewDir);
 	float facetGlint = pow(clamp(dot(normal, halfDirection), 0.0, 1.0), 52.0);
 	float sunEnergy = clamp(lightIntensity * 1.75, 0.0, 1.10)
 		* mix(1.0, 0.12, clamp(nightFactor, 0.0, 1.0))
-		* (1.0 - shadowAmount);
+		* (1.0 - shadowAmount) * materialResponse;
 	color += vec3(0.075, 0.071, 0.062) * facetGlint * sunEnergy;
+	return color;
+}
+
+vec3 shadeGroundScatter(
+	vec3 normal,
+	vec3 lightDir,
+	vec3 viewDir,
+	float shadowAmount,
+	bool isSand)
+{
+	vec3 color = isSand ? terrainMatchedSand() : terrainMatchedDirt();
+	vec3 worldUp = vec3(0.0, -1.0, 0.0);
+	float upFacing = dot(normal, worldUp) * 0.5 + 0.5;
+	color *= detailEnvironmentEnergy()
+		* mix(isSand ? 0.94 : 0.84, isSand ? 1.04 : 1.025,
+			smoothstep(0.16, 0.94, upFacing));
+
+	float normalLight = dot(normal, lightDir);
+	float roughDiffuse = smoothstep(-0.22, 0.88, normalLight);
+	float materialResponse = detailMaterialResponse();
+	color *= mix(1.0,
+		mix(isSand ? 0.95 : 0.90,
+			isSand ? 1.045 : 1.055, roughDiffuse),
+		materialResponse);
+	float sunEnergy = clamp(lightIntensity * 1.55, 0.0, 1.0)
+		* mix(1.0, 0.12, clamp(nightFactor, 0.0, 1.0))
+		* (1.0 - shadowAmount) * materialResponse;
+	// Sand is matte but catches a tiny broad sparkle on a real raised facet.
+	// Dirt remains almost fully diffuse, especially when dry.
+	vec3 halfDirection = safeHalfDirection(lightDir, viewDir);
+	float roughGlint = pow(clamp(dot(normal, halfDirection), 0.0, 1.0),
+		isSand ? 24.0 : 38.0);
+	color += (isSand ? vec3(0.030, 0.025, 0.016)
+		: vec3(0.010, 0.008, 0.005)) * roughGlint * sunEnergy;
 	return color;
 }
 
 void main()
 {
-	bool isGrass = fDetailType < 0.5;
+	int detailType = clamp(int(floor(fDetailType + 0.5)), 0, 3);
+	bool isGrass = detailType == 0;
+	bool isStone = detailType == 1;
+	bool isSand = detailType == 2;
 	if (isGrass)
 	{
 		float coverage = grassCoverage();
@@ -241,9 +313,11 @@ void main()
 
 	if (materialDebugMode != 0)
 	{
-		FragColor = vec4(
-			isGrass ? vec3(0.16, 0.92, 0.24) : vec3(0.48, 0.58, 0.72),
-			1.0);
+		vec3 debugColor = isGrass ? vec3(0.16, 0.92, 0.24)
+			: isStone ? vec3(0.48, 0.58, 0.72)
+				: isSand ? vec3(0.96, 0.72, 0.24)
+					: vec3(0.48, 0.27, 0.12);
+		FragColor = vec4(debugColor, 1.0);
 		return;
 	}
 
@@ -256,7 +330,9 @@ void main()
 	float shadowAmount = receiveShadow();
 	vec3 color = isGrass
 		? shadeGrass(normal, normalize(fDetailTangent), lightDir, viewDir, shadowAmount)
-		: shadeStone(normal, lightDir, viewDir, shadowAmount);
+		: isStone
+			? shadeStone(normal, lightDir, viewDir, shadowAmount)
+			: shadeGroundScatter(normal, lightDir, viewDir, shadowAmount, isSand);
 
 	if (weatherMode == 1 || weatherMode == 2)
 	{
@@ -266,7 +342,9 @@ void main()
 				* clamp(wetSurfaceStrength, 0.0, 1.0);
 			// Living blades retain more color; rough pebbles absorb a visibly
 			// stronger neutral film without becoming black or blue.
-			color *= mix(1.0, isGrass ? 0.82 : 0.70, wetness);
+			float wetDarkening = isGrass ? 0.82
+				: isStone ? 0.70 : isSand ? 0.78 : 0.66;
+			color *= mix(1.0, wetDarkening, wetness);
 			// Wet facets get a tiny extra highlight; it remains local to the pebble
 			// and is shadow-aware so it cannot glow beneath an occluder.
 			if (!isGrass)
@@ -274,7 +352,10 @@ void main()
 				vec3 halfDirection = safeHalfDirection(lightDir, viewDir);
 				float wetGlint = pow(
 					clamp(dot(normal, halfDirection), 0.0, 1.0), 72.0);
-				color += vec3(0.055, 0.064, 0.070) * wetGlint * wetness
+				vec3 wetTint = isStone ? vec3(0.055, 0.064, 0.070)
+					: isSand ? vec3(0.038, 0.040, 0.036)
+						: vec3(0.025, 0.028, 0.027);
+				color += wetTint * wetGlint * wetness
 					* (1.0 - shadowAmount);
 			}
 		}
@@ -301,10 +382,12 @@ void main()
 
 	vec3 dayTransmission = isGrass
 		? vec3(0.54, 0.59, 0.62)
-		: vec3(0.58, 0.59, 0.61);
+		: isSand ? vec3(0.64, 0.62, 0.58)
+			: vec3(0.58, 0.59, 0.61);
 	vec3 nightTransmission = isGrass
 		? vec3(0.64, 0.70, 0.79)
-		: vec3(0.66, 0.69, 0.76);
+		: isSand ? vec3(0.70, 0.70, 0.72)
+			: vec3(0.66, 0.69, 0.76);
 	vec3 shadowTransmission = mix(
 		dayTransmission,
 		nightTransmission,

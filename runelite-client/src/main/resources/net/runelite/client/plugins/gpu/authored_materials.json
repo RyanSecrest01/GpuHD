@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "atlas": {
+    "resolution": 128,
+    "normalEncoding": "TANGENT_XYZ_UNSIGNED_RGBA8",
+    "propertyEncoding": "R_ROUGHNESS_G_METALLIC_B_AO_A_HEIGHT"
+  },
+  "layers": {
+    "normal": [
+      { "name": "neutral-flat-normal", "source": "$neutral" },
+      { "name": "grass-normal", "source": "materials/grass_normal.png" },
+      { "name": "dirt-normal", "source": "materials/dirt_normal.png" },
+      { "name": "sand-normal", "source": "materials/sand_normal.png" },
+      { "name": "cobble-normal", "source": "materials/cobble_normal.png" },
+      { "name": "masonry-normal", "source": "materials/masonry_normal.png" },
+      { "name": "dock-wood-normal", "source": "materials/dock_wood_normal.png" },
+      { "name": "painted-wood-normal", "source": "materials/painted_wood_normal.png" },
+      { "name": "roof-tile-normal", "source": "materials/roof_tile_normal.png" },
+      { "name": "metal-normal", "source": "materials/metal_normal.png" },
+      { "name": "foliage-normal", "source": "materials/foliage_normal.png" }
+    ],
+    "properties": [
+      { "name": "neutral-dry-properties", "source": "$neutral" },
+      { "name": "grass-properties", "source": "materials/grass_properties.png" },
+      { "name": "dirt-properties", "source": "materials/dirt_properties.png" },
+      { "name": "sand-properties", "source": "materials/sand_properties.png" },
+      { "name": "cobble-properties", "source": "materials/cobble_properties.png" },
+      { "name": "masonry-properties", "source": "materials/masonry_properties.png" },
+      { "name": "dock-wood-properties", "source": "materials/dock_wood_properties.png" },
+      { "name": "painted-wood-properties", "source": "materials/painted_wood_properties.png" },
+      { "name": "roof-tile-properties", "source": "materials/roof_tile_properties.png" },
+      { "name": "metal-properties", "source": "materials/metal_properties.png" },
+      { "name": "foliage-properties", "source": "materials/foliage_properties.png" }
+    ]
+  },
+  "materials": [
+    { "material": "UNKNOWN", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "GRASS", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "STONE", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "SAND", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "DIRT", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "WOOD", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "METAL", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "FOLIAGE", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+    { "material": "WATER", "variant": 0, "normalLayer": 0, "propertyLayer": 0, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.0, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.0, "heightScale": 0.0 },
+
+    { "material": "GRASS", "variant": 1, "normalLayer": 1, "propertyLayer": 1, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.70, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.25, "heightScale": 0.010 },
+    { "material": "DIRT", "variant": 1, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
+    { "material": "SAND", "variant": 1, "normalLayer": 3, "propertyLayer": 3, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.45, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.16, "heightScale": 0.006 },
+    { "material": "STONE", "variant": 1, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
+    { "material": "STONE", "variant": 2, "normalLayer": 5, "propertyLayer": 5, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.65, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.34, "heightScale": 0.014 },
+    { "material": "WOOD", "variant": 1, "normalLayer": 6, "propertyLayer": 6, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.58, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.30, "heightScale": 0.010 },
+    { "material": "WOOD", "variant": 2, "normalLayer": 7, "propertyLayer": 7, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.44, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.20, "heightScale": 0.007 },
+    { "material": "STONE", "variant": 3, "normalLayer": 8, "propertyLayer": 8, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.32, "heightScale": 0.012 },
+    { "material": "METAL", "variant": 1, "normalLayer": 9, "propertyLayer": 9, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.36, "roughnessFactor": 1.0, "metallicFactor": 1.0, "aoStrength": 0.12, "heightScale": 0.004 },
+    { "material": "FOLIAGE", "variant": 1, "normalLayer": 10, "propertyLayer": 10, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.52, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.24, "heightScale": 0.008 }
+  ]
+}

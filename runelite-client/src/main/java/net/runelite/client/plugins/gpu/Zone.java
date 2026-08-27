@@ -72,8 +72,8 @@ class Zone
 	int[] levelOffsets = new int[4]; // buffer pos in ints for the end of the level
 
 	// Procedural surface details are packed as zone-local x, y, z, seed,
-	// ground-HSL, type values. Type 0 is grass and type 1 is a stone pebble
-	// cluster. They remain CPU-only; the visible subset is streamed each frame.
+	// ground-HSL, type values. Types 0..3 are grass, stone, sand, and dirt.
+	// They remain CPU-only; the visible subset is streamed each frame.
 	// Offsets are cumulative float offsets, mirroring levelOffsets for the
 	// independently streamed detail instance data.
 	float[] surfaceDetailAnchors = new float[0];

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "terrainRules": [
+    {
+      "name": "carpet-overlay-veto",
+      "material": "UNKNOWN",
+	  "authoredVariant": 0,
+      "layer": "OVERLAY",
+      "ids": [13, 163]
+    },
+    {
+      "name": "grass-overlay",
+      "material": "GRASS",
+	  "authoredVariant": 1,
+      "layer": "OVERLAY",
+      "ids": [29]
+    },
+    {
+      "name": "sand-overlays",
+      "material": "SAND",
+	  "authoredVariant": 1,
+      "layer": "OVERLAY",
+      "ids": [25, 26, 76]
+    }
+  ],
+  "objectRules": [],
+  "textureRules": [
+    {
+      "name": "live-cache-water",
+      "material": "WATER",
+	  "authoredVariant": 0,
+      "textures": [1, 24, 25, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 208]
+    },
+    {
+      "name": "verified-wood",
+      "material": "WOOD",
+	  "authoredVariant": 1,
+      "textures": [0, 3, 5, 7, 9, 10, 16, 20, 22, 32, 51]
+    },
+    {
+      "name": "verified-stone",
+      "material": "STONE",
+	  "authoredVariant": 2,
+      "textures": [2, 6, 11, 15, 23, 35, 42, 43, 44, 45, 46, 50, 55, 120, 121, 122]
+    },
+    {
+      "name": "live-cache-turf",
+      "material": "GRASS",
+	  "authoredVariant": 1,
+      "textures": [129]
+    },
+    {
+      "name": "verified-foliage",
+      "material": "FOLIAGE",
+	  "authoredVariant": 1,
+      "textures": [8, 28, 29, 30, 33, 41, 60, 89, 90, 123, 124, 127, 128, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 209, 210, 211, 212, 213, 214]
+    },
+    {
+      "name": "verified-metal",
+      "material": "METAL",
+	  "authoredVariant": 1,
+      "textures": [12, 37]
+    }
+  ]
+}
