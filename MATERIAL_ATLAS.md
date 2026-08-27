@@ -2,7 +2,7 @@
 
 This document defines the authored surface-data contract. Phase 2A established
 storage and ownership. Phase 2B supplies the first authored assets and
-deterministic variants; Phase 3 consumes them for stable shading.
+deterministic authored slots; Phase 3 consumes them for stable shading.
 
 ## Ownership and Lifecycle
 
@@ -48,11 +48,12 @@ The existing signed 16-bit `tex.x` lane is allocated as:
 | --- | --- |
 | 0–8 | RuneLite texture code (0–256) |
 | 9–12 | semantic `SurfaceMaterial` ID |
-| 13–15 | authored variant (0–7 per semantic material) |
+| 13–15 | authored slot (0–7; object replacement identity) |
 
-Signed values are safe because shaders mask after integer promotion. Variant
-zero is the semantic fallback. Later rules can distinguish, for example,
-cobble from masonry or dock wood from painted wood without widening vertices.
+Signed values are safe because shaders mask after integer promotion. Slot zero
+is the vanilla fallback. Object rules can distinguish, for example, Lumbridge
+masonry from dock wood without pretending those surfaces are different semantic
+materials or widening vertices.
 
 `tex.w` and `abhsl` remain untouched because their bits are already committed
 to terrain/water edges, alpha, bias, and generated-water-bed markers.
@@ -62,7 +63,7 @@ to terrain/water edges, alpha, bias, and generated-water-bed markers.
 The checked-in source sheet and reproducible generator produce ten paired map
 layers:
 
-| Material | Semantic / variant | Layer |
+| Material | Semantic / authored slot | Layer |
 | --- | --- | --- |
 | grass | `GRASS / 1` | 1 |
 | dirt | `DIRT / 1` | 2 |
@@ -78,7 +79,9 @@ layers:
 `scripts/generate-authored-material-maps.ps1` deterministically derives the
 128-pixel tangent normals and packed property maps from
 `materials/authored_height_source.png`. Exact catalog rules may select a
-variant explicitly; heuristic material matches use the semantic default.
+slot explicitly; terrain and texture rules retain their existing material
+variant behavior until the object-slot migration is complete. The first
+curated object rule is `16519` (Lumbridge castle wall) → `STONE`, slot `1`.
 
 ## Phase Boundaries
 

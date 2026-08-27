@@ -114,9 +114,9 @@ Acceptance:
 
 - The atlas contains neutral layer zero plus ten validated 128-pixel normal and
   property layers generated from a checked-in authored source sheet.
-- Exact and heuristic material matches carry deterministic authored variants in
+- Exact and heuristic material matches carry deterministic authored metadata in
   the existing signed-short vertex lane.
-- The material inspector reports the selected variant, and focused tests load
+- The material inspector reports the selected authored slot, and focused tests load
   every image-backed layer at its declared resolution.
 - No world shader samples the atlas yet, so RuneLite vertex color and the Phase
   1 lighting baseline remain pixel-authoritative until Phase 3.

@@ -11,7 +11,7 @@
     {
       "name": "grass-overlay",
       "material": "GRASS",
-	  "authoredVariant": 1,
+      "authoredVariant": 2,
       "layer": "OVERLAY",
       "ids": [29]
     },
@@ -27,8 +27,8 @@
     {
       "name": "lumbridge-castle-wall",
       "material": "STONE",
-      "authoredVariant": 2,
-      "objectIds": [16519]
+      "authoredSlot": 1,
+      "objectIds": [16519, 20084, 1911, 1913]
     }
   ],
   "textureRules": [
@@ -47,13 +47,13 @@
     {
       "name": "verified-stone",
       "material": "STONE",
-	  "authoredVariant": 2,
+      "authoredVariant": 5,
       "textures": [2, 6, 11, 15, 23, 35, 42, 43, 44, 45, 46, 50, 55, 120, 121, 122]
     },
     {
       "name": "live-cache-turf",
       "material": "GRASS",
-	  "authoredVariant": 1,
+      "authoredVariant": 2,
       "textures": [129]
     },
     {

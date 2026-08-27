@@ -27,9 +27,13 @@ enum SurfaceMaterial
 	static final int TEXTURE_MASK = (1 << TEXTURE_BITS) - 1;
 	static final int MATERIAL_BITS = 4;
 	static final int MATERIAL_MASK = (1 << MATERIAL_BITS) - 1;
-	static final int VARIANT_BITS = 3;
-	static final int VARIANT_SHIFT = TEXTURE_BITS + MATERIAL_BITS;
-	static final int VARIANT_MASK = (1 << VARIANT_BITS) - 1;
+	static final int AUTHORED_SLOT_BITS = 3;
+	static final int AUTHORED_SLOT_SHIFT = TEXTURE_BITS + MATERIAL_BITS;
+	static final int AUTHORED_SLOT_MASK = (1 << AUTHORED_SLOT_BITS) - 1;
+	// Compatibility aliases for the authored-material catalog during migration.
+	static final int VARIANT_BITS = AUTHORED_SLOT_BITS;
+	static final int VARIANT_SHIFT = AUTHORED_SLOT_SHIFT;
+	static final int VARIANT_MASK = AUTHORED_SLOT_MASK;
 
 	private final int id;
 	private final int detailType;
@@ -57,6 +61,18 @@ enum SurfaceMaterial
 
 	int getDefaultAuthoredVariant()
 	{
+		if (this == GRASS)
+		{
+			return 2;
+		}
+		if (this == DIRT)
+		{
+			return 3;
+		}
+		if (this == STONE)
+		{
+			return 4;
+		}
 		return this == UNKNOWN || this == WATER ? 0 : 1;
 	}
 
@@ -65,10 +81,10 @@ enum SurfaceMaterial
 		return packTextureCode(textureCode, 0);
 	}
 
-	int packTextureCode(int textureCode, int authoredVariant)
+	int packTextureCode(int textureCode, int authoredSlot)
 	{
 		return textureCode & TEXTURE_MASK
 			| (id & MATERIAL_MASK) << TEXTURE_BITS
-			| (authoredVariant & VARIANT_MASK) << VARIANT_SHIFT;
+			| (authoredSlot & AUTHORED_SLOT_MASK) << AUTHORED_SLOT_SHIFT;
 	}
 }

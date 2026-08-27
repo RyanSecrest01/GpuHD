@@ -103,7 +103,7 @@ acceptance criteria, and explicit non-goals.
 The atlas layout, channel semantics, ownership, and vertex-capacity decision are
 recorded in `MATERIAL_ATLAS.md`. Do not reinterpret those channels or widen the
 world VBO without a later package demonstrating that the existing semantic plus
-variant encoding is insufficient.
+authored-slot encoding is insufficient.
 
 ### Phase and Task Discipline
 

@@ -46,8 +46,8 @@ public class AuthoredMaterialCatalogTest
 		assertDefinition(catalog, SurfaceMaterial.GRASS, 1, 1);
 		assertDefinition(catalog, SurfaceMaterial.DIRT, 1, 2);
 		assertDefinition(catalog, SurfaceMaterial.SAND, 1, 3);
-		assertDefinition(catalog, SurfaceMaterial.STONE, 1, 4);
-		assertDefinition(catalog, SurfaceMaterial.STONE, 2, 5);
+		assertDefinition(catalog, SurfaceMaterial.STONE, 1, 5);
+		assertDefinition(catalog, SurfaceMaterial.STONE, 2, 4);
 		assertDefinition(catalog, SurfaceMaterial.WOOD, 1, 6);
 		assertDefinition(catalog, SurfaceMaterial.WOOD, 2, 7);
 		assertDefinition(catalog, SurfaceMaterial.STONE, 3, 8);

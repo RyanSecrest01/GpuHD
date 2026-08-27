@@ -468,9 +468,14 @@ final class AuthoredMaterialAtlas
 		}
 
 		return loadImagePixels(
-				source,
-				resolution
+			source,
+			resolution
 		);
+	}
+
+	static ByteBuffer loadPixels(String source, int resolution, boolean normal)
+	{
+		return loadMaterialDataPixels(source, resolution, normal);
 	}
 
 	/**
@@ -636,6 +641,11 @@ final class AuthoredMaterialAtlas
 		}
 
 		return pixels.flip();
+	}
+
+	static ByteBuffer neutralPixels(int resolution, boolean normal)
+	{
+		return neutralMaterialDataPixels(resolution, normal);
 	}
 
 	/**

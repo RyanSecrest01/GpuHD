@@ -37,6 +37,11 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
+import net.runelite.client.config.Keybind;
+import net.runelite.client.input.KeyManager;
+import net.runelite.client.util.HotkeyListener;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -151,6 +156,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	@Inject
 	private OverlayManager overlayManager;
+
+	@Inject
+	private ChunkObjectExporter chunkObjectExporter;
+
+	@Inject
+	private KeyManager keyManager;
 
 	@Inject
 	private MaterialInspectorOverlay materialInspectorOverlay;
@@ -497,9 +508,38 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	static final float[] IDENTITY = Mat4.identity();
 
+
+	private void exportCurrentChunkObjects()
+	{
+		Path output =
+				chunkObjectExporter.exportCurrentChunk();
+
+		log.info(
+				"Chunk object dump written to {}",
+				output
+		);
+	}
+
+	private final HotkeyListener exportChunkObjectsHotkey =
+			new HotkeyListener(
+					() -> config.exportChunkObjectsHotkey()
+			)
+			{
+				@Override
+				public void hotkeyPressed()
+				{
+					clientThread.invokeLater(
+							GpuPlugin.this::exportCurrentChunkObjects
+					);
+				}
+			};
+
 	@Override
 	protected void startUp()
 	{
+		keyManager.registerKeyListener(
+				exportChunkObjectsHotkey
+		);
 		root = new SceneContext(NUM_ZONES, NUM_ZONES);
 		subs = new SceneContext[MAX_WORLDVIEWS];
 		int numThreads = config.numThreads();
@@ -685,6 +725,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	@Override
 	protected void shutDown()
 	{
+		keyManager.unregisterKeyListener(
+				exportChunkObjectsHotkey
+		);
 		removeMaterialInspectorOverlay();
 		weatherAudio.shutdown();
 		clientThread.invoke(() ->
@@ -5803,4 +5846,5 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			log.info("Total: {}kb", totalSzKb);
 		}
 	}
+
 }

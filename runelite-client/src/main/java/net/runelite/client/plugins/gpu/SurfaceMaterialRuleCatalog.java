@@ -47,6 +47,8 @@ final class SurfaceMaterialRuleCatalog
 
 	static Match heuristic(SurfaceMaterial material, String source)
 	{
+		// Authored slots are explicit replacement identities. Heuristic semantic
+		// classification must never select an authored object appearance.
 		return new Match(material, material.getDefaultAuthoredVariant(), source, false);
 	}
 
@@ -220,7 +222,7 @@ final class SurfaceMaterialRuleCatalog
 				validateIds(rule.textureIds, "texture", rule.name);
 			}
 			SurfaceMaterial material = ruleMaterial(rule);
-			result[i] = new RuntimeRule(material, authoredVariant(rule, material),
+			result[i] = new RuntimeRule(material, authoredSlot(rule),
 				"object:" + rule.name, -1, rule.objectIds, rule.textureIds,
 				rule.area, rule.planes);
 		}
@@ -293,6 +295,17 @@ final class SurfaceMaterialRuleCatalog
 		return variant;
 	}
 
+	private static int authoredSlot(ObjectRule rule)
+	{
+		int slot = rule.authoredSlot == null ? 0 : rule.authoredSlot;
+		if (slot < 0 || slot > SurfaceMaterial.AUTHORED_SLOT_MASK)
+		{
+			throw new IllegalArgumentException(
+				"Object rule has invalid authored slot: " + rule.name);
+		}
+		return slot;
+	}
+
 	private static void validateIds(int[] ids, String type, String ruleName)
 	{
 		if (ids == null || ids.length == 0)
@@ -333,15 +346,15 @@ final class SurfaceMaterialRuleCatalog
 	static final class Match
 	{
 		private final SurfaceMaterial material;
-		private final int authoredVariant;
+		private final int authoredSlot;
 		private final String source;
 		private final boolean exact;
 
-		private Match(SurfaceMaterial material, int authoredVariant,
+		private Match(SurfaceMaterial material, int authoredSlot,
 			String source, boolean exact)
 		{
 			this.material = material;
-			this.authoredVariant = authoredVariant;
+			this.authoredSlot = authoredSlot;
 			this.source = source;
 			this.exact = exact;
 		}
@@ -351,14 +364,19 @@ final class SurfaceMaterialRuleCatalog
 			return material;
 		}
 
+		int getAuthoredSlot()
+		{
+			return authoredSlot;
+		}
+
 		int getAuthoredVariant()
 		{
-			return authoredVariant;
+			return authoredSlot;
 		}
 
 		int packTextureCode(int textureCode)
 		{
-			return material.packTextureCode(textureCode, authoredVariant);
+			return material.packTextureCode(textureCode, authoredSlot);
 		}
 
 		String getSource()
@@ -407,6 +425,7 @@ final class SurfaceMaterialRuleCatalog
 	{
 		private int[] objectIds;
 		private int[] textureIds;
+		private Integer authoredSlot;
 	}
 
 	private static final class RuntimeRule
@@ -418,11 +437,11 @@ final class SurfaceMaterialRuleCatalog
 		private final int[] area;
 		private final int[] planes;
 
-		private RuntimeRule(SurfaceMaterial material, int authoredVariant,
+		private RuntimeRule(SurfaceMaterial material, int authoredSlot,
 			String source,
 			int layer, int[] ids, int[] textureIds, int[] area, int[] planes)
 		{
-			this.match = new Match(material, authoredVariant, source, true);
+			this.match = new Match(material, authoredSlot, source, true);
 			this.layer = layer;
 			this.ids = ids;
 			this.textureIds = textureIds;

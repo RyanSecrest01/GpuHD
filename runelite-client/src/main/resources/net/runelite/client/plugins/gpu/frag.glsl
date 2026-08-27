@@ -68,7 +68,7 @@ in vec4 fColor;
 noperspective centroid in float fHsl;
 flat in int fTextureId;
 flat in int fMaterialId;
-flat in int fMaterialVariant;
+flat in int fAuthoredSlot;
 in vec2 fUv;
 in vec2 fTileUv;
 flat in int fShoreEdges;
@@ -208,7 +208,25 @@ vec3 authoredSurfaceNormal(vec3 geometricNormal)
     // Everything else keeps the original geometric normal.
     // =====================================================
 
-    if (fMaterialId != 2 || fMaterialVariant != 1)
+    int authoredNormalLayer = -1;
+	if (fAuthoredSlot == 1 && fMaterialId == 2)
+    {
+        authoredNormalLayer = 5;
+    }
+    else if (fAuthoredSlot == 2 && fMaterialId == 1)
+    {
+        authoredNormalLayer = 1;
+    }
+    else if (fAuthoredSlot == 3 && fMaterialId == 4)
+    {
+        authoredNormalLayer = 2;
+    }
+    else if (fAuthoredSlot == 4 && fMaterialId == 2)
+    {
+        authoredNormalLayer = 4;
+    }
+
+    if (authoredNormalLayer < 0)
     {
         return geometricNormal;
     }
@@ -225,12 +243,12 @@ vec3 authoredSurfaceNormal(vec3 geometricNormal)
      * Sample cobble normal.
      *
      * authored_materials.json:
-     * STONE variant 1 -> normalLayer 4
+     * authored slot 1 -> masonry normalLayer 5
      */
     vec3 tangentNormal =
         texture(
             authoredMaterialNormals,
-            vec3(materialUv, 4.0)
+            vec3(materialUv, float(authoredNormalLayer))
         ).xyz;
 
     /*
@@ -614,11 +632,37 @@ void main()
 
 	// ====================================================
 	// FIRST AUTHORED ALBEDO TEST
-	// STONE variant 2 = masonry
+	// authored slot 1 = Lumbridge masonry
 	// albedo layer 1 = masonry_albedo.png
 	// ====================================================
 
-	if (fMaterialId == 2 && fMaterialVariant == 2)
+	int authoredAlbedoLayer = -1;
+	if (fMaterialId == 2 && fAuthoredSlot == 1)
+	{
+		authoredAlbedoLayer = 1;
+	}
+	else if (fMaterialId == 1 && fAuthoredSlot == 2)
+	{
+		authoredAlbedoLayer = 2;
+	}
+	else if (fMaterialId == 4 && fAuthoredSlot == 3)
+	{
+		authoredAlbedoLayer = 3;
+	}
+	else if (fMaterialId == 2 && fAuthoredSlot == 4)
+	{
+		authoredAlbedoLayer = 4;
+	}
+	else if (fMaterialId == 2 && fAuthoredSlot == 5)
+	{
+		authoredAlbedoLayer = 5;
+	}
+	else if (fMaterialId == 4 && fAuthoredSlot == 6)
+	{
+		authoredAlbedoLayer = 6;
+	}
+
+	if (authoredAlbedoLayer >= 0)
 	{
 		vec2 authoredUv = vec2(
 				fUv.y,
@@ -627,7 +671,7 @@ void main()
 
 		vec3 authoredColor = texture(
 				authoredMaterialAlbedos,
-				vec3(authoredUv, 1.0)
+				vec3(authoredUv, float(authoredAlbedoLayer))
 		).rgb;
 
 		// TEMP TEST: brighten authored albedo before world lighting.

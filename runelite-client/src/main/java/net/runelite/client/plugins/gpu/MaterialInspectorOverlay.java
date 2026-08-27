@@ -151,7 +151,7 @@ final class MaterialInspectorOverlay extends Overlay
 					world.getX(), world.getY(), plane);
 			text.append("<br>Object ").append(objectId).append(": ")
 				.append(match.getMaterial()).append(" [")
-				.append("variant ").append(match.getAuthoredVariant()).append(", ")
+				.append("slot ").append(match.getAuthoredSlot()).append(", ")
 				.append(match.getSource()).append(", ")
 				.append(match.isExact() ? "exact" : "fallback").append(']');
 		}
@@ -190,7 +190,7 @@ final class MaterialInspectorOverlay extends Overlay
 	{
 		text.append("<br>").append(label).append(": ")
 			.append(match.getMaterial()).append(" [")
-			.append("variant ").append(match.getAuthoredVariant()).append(", ")
+			.append("slot ").append(match.getAuthoredSlot()).append(", ")
 			.append(match.getSource()).append(", ")
 			.append(match.isExact() ? "exact" : "heuristic").append(']')
 			.append(" tex=").append(texture)
