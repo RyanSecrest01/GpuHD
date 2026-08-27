@@ -15,6 +15,10 @@
 // ========================================================
 
 uniform sampler2DArray textures;
+// Authored material texture arrays.
+// For the first milestone we only consume the normal atlas.
+uniform sampler2DArray authoredMaterialNormals;
+uniform sampler2DArray authoredMaterialAlbedos;
 uniform float brightness;
 uniform float smoothBanding;
 uniform vec4 fogColor;
@@ -64,6 +68,7 @@ in vec4 fColor;
 noperspective centroid in float fHsl;
 flat in int fTextureId;
 flat in int fMaterialId;
+flat in int fMaterialVariant;
 in vec2 fUv;
 in vec2 fTileUv;
 flat in int fShoreEdges;
@@ -189,6 +194,141 @@ vec3 stableSurfaceNormal()
 	normal *= inversesqrt(lengthSquared);
 	vec3 viewVector = cameraPosition - fWorldPos;
 	return dot(normal, viewVector) < 0.0 ? -normal : normal;
+}
+
+vec3 authoredSurfaceNormal(vec3 geometricNormal)
+{
+    // =====================================================
+    // FIRST VISUAL MATERIAL TEST
+    //
+    // STONE = material ID 2
+    // variant 1 = cobble
+    // normal atlas layer 4
+    //
+    // Everything else keeps the original geometric normal.
+    // =====================================================
+
+    if (fMaterialId != 2 || fMaterialVariant != 1)
+    {
+        return geometricNormal;
+    }
+
+    /*
+     * Use RuneLite's existing UVs for this first proof.
+     *
+     * Later we can use authored UV scale and improve
+     * world/terrain projection.
+     */
+    vec2 materialUv = fUv;
+
+    /*
+     * Sample cobble normal.
+     *
+     * authored_materials.json:
+     * STONE variant 1 -> normalLayer 4
+     */
+    vec3 tangentNormal =
+        texture(
+            authoredMaterialNormals,
+            vec3(materialUv, 4.0)
+        ).xyz;
+
+    /*
+     * Stored unsigned RGB [0,1]
+     * becomes tangent normal [-1,1].
+     */
+    tangentNormal =
+        tangentNormal * 2.0 - 1.0;
+
+    /*
+     * Make the FIRST TEST deliberately obvious.
+     *
+     * The catalog currently specifies 0.76.
+     * We exaggerate XY slightly so we can clearly prove
+     * that normal mapping is active.
+     */
+    tangentNormal.xy *= 1.25;
+
+    tangentNormal =
+        normalize(tangentNormal);
+
+    // =====================================================
+    // Reconstruct tangent basis from world position + UV
+    // derivatives.
+    // =====================================================
+
+    vec3 dp1 = dFdx(fWorldPos);
+    vec3 dp2 = dFdy(fWorldPos);
+
+    vec2 duv1 = dFdx(materialUv);
+    vec2 duv2 = dFdy(materialUv);
+
+    float determinant =
+        duv1.x * duv2.y -
+        duv1.y * duv2.x;
+
+    /*
+     * Degenerate UV mapping:
+     * safely fall back to the normal RuneLite surface.
+     */
+    if (abs(determinant) < 0.000001)
+    {
+        return geometricNormal;
+    }
+
+    float inverseDeterminant =
+        1.0 / determinant;
+
+    vec3 tangent =
+        normalize(
+            (dp1 * duv2.y -
+             dp2 * duv1.y)
+            * inverseDeterminant
+        );
+
+    vec3 bitangent =
+        normalize(
+            (-dp1 * duv2.x +
+              dp2 * duv1.x)
+            * inverseDeterminant
+        );
+
+    /*
+     * Keep the basis aligned with the geometric normal.
+     */
+    tangent =
+        normalize(
+            tangent -
+            geometricNormal *
+            dot(geometricNormal, tangent)
+        );
+
+    bitangent =
+        normalize(
+            cross(
+                geometricNormal,
+                tangent
+            )
+        );
+
+    /*
+     * Preserve the UV orientation where possible.
+     */
+    if (determinant < 0.0)
+    {
+        bitangent = -bitangent;
+    }
+
+    mat3 tbn =
+        mat3(
+            tangent,
+            bitangent,
+            geometricNormal
+        );
+
+    return normalize(
+        tbn * tangentNormal
+    );
 }
 
 vec3 mainPassLightDirection()
@@ -472,6 +612,30 @@ void main()
     c.rgb = colorblind(c.rgb);
 #endif
 
+	// ====================================================
+	// FIRST AUTHORED ALBEDO TEST
+	// STONE variant 2 = masonry
+	// albedo layer 1 = masonry_albedo.png
+	// ====================================================
+
+	if (fMaterialId == 2 && fMaterialVariant == 2)
+	{
+		vec2 authoredUv = vec2(
+				fUv.y,
+				1.0 - fUv.x
+		);
+
+		vec3 authoredColor = texture(
+				authoredMaterialAlbedos,
+				vec3(authoredUv, 1.0)
+		).rgb;
+
+		// TEMP TEST: brighten authored albedo before world lighting.
+		authoredColor *= 1.45;
+
+		c.rgb = clamp(authoredColor, 0.0, 1.0);
+	}
+
     // ====================================================
     // Enhanced water
     // ====================================================
@@ -660,13 +824,21 @@ void main()
 	vec3 materialNormal = vec3(0.0, -1.0, 0.0);
 	float materialWorldPattern = 0.5;
 	float materialMicroVisibility = 0.0;
-	// These derivative operations sit behind uniform feature branches, never a
-	// per-material branch. Neighboring fragments therefore agree on derivative
-	// evaluation even at primitive/material boundaries.
-	if (dryMaterialActive || rainWeatherActive)
-	{
-		materialNormal = stableSurfaceNormal();
-	}
+
+    // These derivative operations sit behind uniform feature branches, never a
+    // per-material branch. Neighboring fragments therefore agree on derivative
+    // evaluation even at primitive/material boundaries.
+    if (dryMaterialActive || rainWeatherActive)
+    {
+        // RuneLite's original polygon/geometry normal.
+        materialNormal = stableSurfaceNormal();
+
+        // Apply our authored normal map on supported material variants.
+        // For the first milestone this only affects STONE variant 1 / cobble.
+        materialNormal = authoredSurfaceNormal(
+            materialNormal
+        );
+    }
 	if (dryMaterialActive)
 	{
 		float materialPatternPhase = fWorldPos.x * 0.19

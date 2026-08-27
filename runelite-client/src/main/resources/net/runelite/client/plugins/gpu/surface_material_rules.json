@@ -23,7 +23,14 @@
       "ids": [25, 26, 76]
     }
   ],
-  "objectRules": [],
+  "objectRules": [
+    {
+      "name": "lumbridge-castle-wall",
+      "material": "STONE",
+      "authoredVariant": 2,
+      "objectIds": [16519]
+    }
+  ],
   "textureRules": [
     {
       "name": "live-cache-water",

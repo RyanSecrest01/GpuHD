@@ -466,6 +466,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniUseFog;
 	private int uniFogColor;
 	private int uniFogDepth;
+	private int uniAuthoredMaterialNormals;
 	private int uniDrawDistance;
 	private int uniExpandedMapLoadingChunks;
 	private int uniSmoothBanding;
@@ -479,6 +480,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniUiAlphaOverlay;
 	private int uniTextures;
 	private int uniTextureAnimations;
+	private int uniAuthoredMaterialAlbedos;
 	private int uniBlockMain;
 	private int uniTextureLightMode;
 	private int uniTerrainTextureBlending;
@@ -1415,6 +1417,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private void initUniforms()
 	{
 		uniShadowMap = glGetUniformLocation(glProgram, "shadowMap");
+		uniAuthoredMaterialAlbedos = glGetUniformLocation(glProgram, "authoredMaterialAlbedos");
 		uniShadowLightProjMain = glGetUniformLocation(glProgram, "shadowLightProj");
 		uniShadowsEnabled = glGetUniformLocation(glProgram, "shadowsEnabled");
 		uniShadowStrength = glGetUniformLocation(glProgram, "shadowStrength");
@@ -1463,6 +1466,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniTick = glGetUniformLocation(glProgram, "tick");
 		uniBlockMain = glGetUniformBlockIndex(glProgram, "uniforms");
 		uniTextures = glGetUniformLocation(glProgram, "textures");
+		uniAuthoredMaterialNormals = glGetUniformLocation(glProgram, "authoredMaterialNormals");
 		uniTextureAnimations = glGetUniformLocation(glProgram, "textureAnimations");
 		uniBase = glGetUniformLocation(glProgram, "base");
 		uniColorblindIntensity = glGetUniformLocation(glProgram, "colorblindIntensity");
@@ -3595,6 +3599,40 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				uniTextures,
 				1
 		);
+
+		// =====================================================
+		// Authored material normal atlas
+		// =====================================================
+
+				glActiveTexture(GL_TEXTURE7);
+
+				glBindTexture(
+						GL_TEXTURE_2D_ARRAY,
+						authoredMaterialAtlas.getNormalTextureArrayId()
+				);
+
+				glUniform1i(
+						uniAuthoredMaterialNormals,
+						7
+				);
+
+		// Authored albedo atlas
+		glActiveTexture(GL_TEXTURE8);
+
+		glBindTexture(
+				GL_TEXTURE_2D_ARRAY,
+				authoredMaterialAtlas.getAlbedoTextureArrayId()
+		);
+
+		glUniform1i(
+				uniAuthoredMaterialAlbedos,
+				8
+		);
+
+
+
+		// Return to RuneLite's expected active texture.
+		glActiveTexture(GL_TEXTURE0);
 
 		// Enable face culling
 		glEnable(GL_CULL_FACE);

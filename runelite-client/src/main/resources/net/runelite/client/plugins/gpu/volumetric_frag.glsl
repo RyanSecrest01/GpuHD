@@ -321,7 +321,8 @@ void main()
 		* profileIntensity
 		* strength
 		* transmission
-		* coverageFade;
+		* coverageFade
+		* 1.5;
 	// Extinction is deliberately tiny and confined to the adjacent dark rim.
 	// The main surface shader remains the sole owner of cast-shadow darkening.
 	float extinction = dark

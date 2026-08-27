@@ -2,10 +2,16 @@
   "version": 1,
   "atlas": {
     "resolution": 128,
+    "albedoResolution": 256,
+    "albedoEncoding": "SRGB_RGBA8",
     "normalEncoding": "TANGENT_XYZ_UNSIGNED_RGBA8",
     "propertyEncoding": "R_ROUGHNESS_G_METALLIC_B_AO_A_HEIGHT"
   },
   "layers": {
+    "albedo": [
+      { "name": "neutral-vanilla-albedo", "source": "$neutral" },
+      { "name": "masonry-albedo", "source": "materials/masonry_albedo.png" }
+    ],
     "normal": [
       { "name": "neutral-flat-normal", "source": "$neutral" },
       { "name": "grass-normal", "source": "materials/grass_normal.png" },
@@ -48,7 +54,7 @@
     { "material": "DIRT", "variant": 1, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
     { "material": "SAND", "variant": 1, "normalLayer": 3, "propertyLayer": 3, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.45, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.16, "heightScale": 0.006 },
     { "material": "STONE", "variant": 1, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
-    { "material": "STONE", "variant": 2, "normalLayer": 5, "propertyLayer": 5, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.65, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.34, "heightScale": 0.014 },
+    { "material": "STONE", "variant": 2, "albedoLayer": 1, "normalLayer": 5, "propertyLayer": 5, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.65, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.34, "heightScale": 0.014},
     { "material": "WOOD", "variant": 1, "normalLayer": 6, "propertyLayer": 6, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.58, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.30, "heightScale": 0.010 },
     { "material": "WOOD", "variant": 2, "normalLayer": 7, "propertyLayer": 7, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.44, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.20, "heightScale": 0.007 },
     { "material": "STONE", "variant": 3, "normalLayer": 8, "propertyLayer": 8, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.32, "heightScale": 0.012 },

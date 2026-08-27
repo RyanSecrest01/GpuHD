@@ -72,14 +72,26 @@ final class MaterialInspectorOverlay extends Overlay
 			return null;
 		}
 
-		Polygon polygon = Perspective.getCanvasTilePoly(client, tile.getLocalLocation());
+		Polygon polygon = Perspective.getCanvasTilePoly(
+				client,
+				tile.getLocalLocation()
+		);
+
 		Point mouse = client.getMouseCanvasPosition();
-		if (polygon == null || mouse == null || !polygon.contains(mouse.getX(), mouse.getY()))
+
+		if (mouse == null)
 		{
 			return null;
 		}
 
-		OverlayUtil.renderPolygon(graphics, polygon, TILE_COLOR);
+		if (polygon != null)
+		{
+			OverlayUtil.renderPolygon(
+					graphics,
+					polygon,
+					TILE_COLOR
+			);
+		}
 		tooltipManager.add(new Tooltip(buildTooltip(tile)));
 		return null;
 	}

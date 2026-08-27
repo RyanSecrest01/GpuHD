@@ -47,6 +47,7 @@ out vec4 fColor;
 noperspective centroid out float fHsl;
 flat out int fTextureId;
 flat out int fMaterialId;
+flat out int fMaterialVariant;
 out vec2 fUv;
 out vec2 fTileUv;
 flat out int fShoreEdges;
@@ -138,6 +139,7 @@ void main()
     // explicit CPU-classified material without widening the stock vertex.
     fTextureId = tex.x & 0x1ff;
     fMaterialId = (tex.x >> 9) & 0xf;
+    fMaterialVariant = (tex.x >> 13) & 0x7;
 
     fUv =
         vec2(
