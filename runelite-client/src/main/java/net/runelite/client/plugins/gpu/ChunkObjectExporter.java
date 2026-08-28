@@ -27,8 +27,9 @@ import net.runelite.api.Scene;
 import net.runelite.api.Tile;
 import net.runelite.api.TileObject;
 import net.runelite.api.WorldView;
+import net.runelite.api.Texture;
+import net.runelite.api.TextureProvider;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.client.RuneLite;
 
 @Singleton
 @Slf4j
@@ -222,10 +223,7 @@ final class ChunkObjectExporter
         bundle.objects =
                 sorted;
 
-        Path directory =
-                RuneLite.RUNELITE_DIR
-                        .toPath()
-                        .resolve("gpuhd-object-dumps");
+        Path directory = exportRoot().resolve("objects");
 
         try
         {
@@ -265,6 +263,9 @@ final class ChunkObjectExporter
                     StandardCharsets.UTF_8
             );
 
+            exportTerrainManifest(scene, chunkMinX, chunkMinY);
+            exportTextureManifest();
+
             log.info(
                     "Exported {} unique object IDs from chunk {},{} to {}",
                     sorted.size(),
@@ -282,6 +283,56 @@ final class ChunkObjectExporter
                     ex
             );
         }
+    }
+
+    private void exportTerrainManifest(Scene scene, int minX, int minY) throws IOException
+    {
+        Path dir = exportRoot().resolve("manifests");
+        Files.createDirectories(dir);
+        StringBuilder out = new StringBuilder("underlay_id,overlay_id,world_x,world_y,plane\n");
+        short[][][] under = scene.getUnderlayIds(), over = scene.getOverlayIds();
+        for (Tile[][] plane : scene.getTiles()) if (plane != null) for (Tile[] row : plane) if (row != null) for (Tile tile : row)
+        {
+            if (tile == null || tile.getWorldLocation() == null) continue;
+            int x = tile.getWorldLocation().getX(), y = tile.getWorldLocation().getY();
+            if (x < minX || x > minX + 7 || y < minY || y > minY + 7) continue;
+            int sx = tile.getSceneLocation().getX(), sy = tile.getSceneLocation().getY(), p = tile.getPlane();
+            out.append(under[p][sx][sy] & 0xffff).append(',').append(over[p][sx][sy] & 0xffff).append(',').append(x).append(',').append(y).append(',').append(p).append('\n');
+        }
+        Path file = dir.resolve("chunk-" + minX + "-" + minY + "-terrain.csv");
+        Files.writeString(file, out, StandardCharsets.UTF_8);
+        appendMaster("terrain", file, minX + "," + minY);
+    }
+
+    private void exportTextureManifest() throws IOException
+    {
+        Path dir = exportRoot().resolve("manifests");
+        Files.createDirectories(dir);
+        TextureProvider provider = client.getTextureProvider();
+        StringBuilder out = new StringBuilder("texture_id,native_pixels,loaded\n");
+        Texture[] textures = provider == null ? null : provider.getTextures();
+        if (textures != null) for (int id = 0; id < textures.length; id++)
+        {
+            int[] pixels = textures[id] == null ? null : provider.load(id);
+            out.append(id).append(',').append(pixels == null ? 0 : pixels.length).append(',').append(pixels != null).append('\n');
+        }
+        Path file = dir.resolve("textures.csv");
+        Files.writeString(file, out, StandardCharsets.UTF_8);
+        appendMaster("textures", file, "global");
+    }
+
+    private static Path exportRoot()
+    {
+        return Path.of(System.getProperty("user.dir")).resolve("gpu-source-export");
+    }
+
+    private static void appendMaster(String type, Path source, String scope) throws IOException
+    {
+        Path master = exportRoot().resolve("master-manifest.csv");
+        if (!Files.exists(master)) Files.writeString(master, "type,scope,source\n", StandardCharsets.UTF_8);
+        String row = type + "," + scope + "," + source.getFileName() + "\n";
+        List<String> lines = Files.readAllLines(master, StandardCharsets.UTF_8);
+        if (lines.stream().noneMatch(row::equals)) Files.writeString(master, row, StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
     }
 
     private void add(
