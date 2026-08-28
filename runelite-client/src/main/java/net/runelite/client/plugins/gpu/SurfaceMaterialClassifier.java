@@ -4,12 +4,13 @@
  */
 package net.runelite.client.plugins.gpu;
 
-import net.runelite.api.SceneTileModel;
 import net.runelite.api.SceneTilePaint;
+import net.runelite.api.SceneTileModel;
 
 /**
- * Classifies surfaces once during upload so shaders do not have to guess a
- * material from an already lit pixel color.
+ * CPU-side material classifier. The classifier runs while terrain is uploaded,
+ * and its result is packed into each primitive. Shaders consume that explicit
+ * tag instead of repeatedly guessing a material from the final, lit RGB value.
  */
 final class SurfaceMaterialClassifier
 {
@@ -70,11 +71,29 @@ final class SurfaceMaterialClassifier
 		return classifyConsensus(colors, 3);
 	}
 
+	static SurfaceMaterialRuleCatalog.Match classifyPaintMatch(
+		SceneTilePaint paint, int layer, int definitionId,
+		int worldX, int worldY, int plane)
+	{
+		SurfaceMaterialRuleCatalog.Match rule = SurfaceMaterialRuleCatalog
+			.resolveTerrain(paint.getTexture(), layer, definitionId,
+				worldX, worldY, plane);
+		if (rule.isExact())
+		{
+			return rule;
+		}
+		SurfaceMaterial material = classifyPaint(paint);
+		return SurfaceMaterialRuleCatalog.heuristic(material,
+			paint.getTexture() >= 0 ? "fallback:paint-rgb" : "fallback:paint-hsl");
+	}
+
 	static SurfaceMaterial classifyFace(int texture, int colorA, int colorB, int colorC)
 	{
 		if (texture >= 0)
 		{
-			// Only exact texture identities are trusted on ordinary models.
+			// Texture identity is authoritative when it is in the explicit map.
+			// Unknown shaped textures stay unknown because their triangle colors
+			// contain brightness rather than material HSL.
 			return classifyTexture(texture);
 		}
 		return classifyConsensus(new int[]{colorA, colorB, colorC}, 2);
@@ -98,10 +117,35 @@ final class SurfaceMaterialClassifier
 		{
 			return SurfaceMaterial.UNKNOWN;
 		}
-		int rgb = layer == 1 ? model.getModelOverlay() : model.getModelUnderlay();
+		int rgb = layer == 1
+			? model.getModelOverlay() : model.getModelUnderlay();
 		return rgb >= 0 && rgb <= 0xffffff
 			? classifyPackedHsl(rgbToPackedHsl(rgb))
 			: SurfaceMaterial.UNKNOWN;
+	}
+
+	static SurfaceMaterialRuleCatalog.Match classifyTerrainFaceMatch(
+		SceneTileModel model, int face, int texture,
+		int colorA, int colorB, int colorC,
+		int layer, int definitionId, int worldX, int worldY, int plane)
+	{
+		SurfaceMaterialRuleCatalog.Match rule = SurfaceMaterialRuleCatalog
+			.resolveTerrain(texture, layer, definitionId, worldX, worldY, plane);
+		if (rule.isExact())
+		{
+			return rule;
+		}
+		SurfaceMaterial material = classifyTerrainFace(model, face,
+			texture, colorA, colorB, colorC);
+		return SurfaceMaterialRuleCatalog.heuristic(material,
+			texture >= 0 ? "fallback:model-layer-rgb" : "fallback:model-hsl");
+	}
+
+	static SurfaceMaterialRuleCatalog.Match classifyObjectMatch(
+		int texture, int objectId, int worldX, int worldY, int plane)
+	{
+		return SurfaceMaterialRuleCatalog.resolveObject(
+			texture, objectId, worldX, worldY, plane);
 	}
 
 	/** @return 0 for underlay, 1 for overlay, or -1 when the face is unknown. */
@@ -178,94 +222,17 @@ final class SurfaceMaterialClassifier
 
 	static boolean isWaterTexture(int textureId)
 	{
-		return textureId == 1
-			|| textureId == 24
-			|| textureId == 25
-			|| textureId >= 130 && textureId <= 189
-			|| textureId == 208;
+		return classifyTexture(textureId) == SurfaceMaterial.WATER;
 	}
 
 	static SurfaceMaterial classifyTexture(int textureId)
 	{
-		if (isWaterTexture(textureId))
-		{
-			return SurfaceMaterial.WATER;
-		}
-		switch (textureId)
-		{
-			case 0:
-			case 3:
-			case 5:
-			case 7:
-			case 9:
-			case 10:
-			case 16:
-			case 20:
-			case 22:
-			case 32:
-			case 51:
-				return SurfaceMaterial.WOOD;
-			case 2:
-			case 6:
-			case 11:
-			case 15:
-			case 23:
-			case 35:
-			case 42:
-			case 43:
-			case 44:
-			case 45:
-			case 46:
-			case 50:
-			case 55:
-			case 120:
-			case 121:
-			case 122:
-				return SurfaceMaterial.STONE;
-			case 129:
-				return SurfaceMaterial.GRASS;
-			case 8:
-			case 28:
-			case 29:
-			case 30:
-			case 33:
-			case 41:
-			case 60:
-			case 89:
-			case 90:
-			case 123:
-			case 124:
-			case 127:
-			case 128:
-			case 190:
-			case 191:
-			case 192:
-			case 193:
-			case 194:
-			case 195:
-			case 196:
-			case 197:
-			case 198:
-			case 199:
-			case 200:
-			case 201:
-			case 202:
-			case 203:
-			case 204:
-			case 205:
-			case 209:
-			case 210:
-			case 211:
-			case 212:
-			case 213:
-			case 214:
-				return SurfaceMaterial.FOLIAGE;
-			case 12:
-			case 37:
-				return SurfaceMaterial.METAL;
-			default:
-				return SurfaceMaterial.UNKNOWN;
-		}
+		return classifyTextureMatch(textureId).getMaterial();
+	}
+
+	static SurfaceMaterialRuleCatalog.Match classifyTextureMatch(int textureId)
+	{
+		return SurfaceMaterialRuleCatalog.resolveTexture(textureId);
 	}
 
 	static int rgbToPackedHsl(int rgb)

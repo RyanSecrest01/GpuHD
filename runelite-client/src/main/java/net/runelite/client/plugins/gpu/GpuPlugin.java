@@ -37,6 +37,7 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -75,8 +76,11 @@ import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.plugins.gpu.config.AntiAliasingMode;
 import net.runelite.client.plugins.gpu.config.UIScalingMode;
 import net.runelite.client.plugins.gpu.template.Template;
+import net.runelite.client.input.KeyManager;
 import net.runelite.client.ui.ClientUI;
 import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.HotkeyListener;
 import net.runelite.rlawt.AWTContext;
 import org.lwjgl.opengl.GL;
 import static org.lwjgl.opengl.GL33C.*;
@@ -128,10 +132,25 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private TextureManager textureManager;
 
 	@Inject
+	private AuthoredTextureOverrideAtlas authoredTextureOverrideAtlas;
+
+	@Inject
 	private RegionManager regionManager;
 
 	@Inject
 	private DrawManager drawManager;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private SurfaceIdDebugOverlay surfaceIdDebugOverlay;
+
+	@Inject
+	private ChunkObjectExporter chunkObjectExporter;
+
+	@Inject
+	private KeyManager keyManager;
 
 	@Inject
 	private PluginManager pluginManager;
@@ -378,6 +397,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniUiAlphaOverlay;
 	private int uniTextures;
 	private int uniTextureAnimations;
+	private int uniAuthoredTextures;
+	private int uniAuthoredTextureLayers;
+	private int uniAuthoredUnderlayLayers;
+	private int uniAuthoredOverlayLayers;
+	private int uniAuthoredTextureEnabled;
 	private int uniBlockMain;
 	private int uniTextureLightMode;
 	private int uniTick;
@@ -387,9 +411,34 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	static final float[] IDENTITY = Mat4.identity();
 
+	private void exportCurrentChunk()
+	{
+		try
+		{
+			Path output = chunkObjectExporter.exportCurrentChunk();
+			log.info("Chunk terrain/object export written to {}", output);
+		}
+		catch (RuntimeException ex)
+		{
+			log.warn("Unable to export the current terrain chunk", ex);
+		}
+	}
+
+	private final HotkeyListener exportChunkHotkey = new HotkeyListener(
+		() -> config.exportChunkHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			clientThread.invokeLater(GpuPlugin.this::exportCurrentChunk);
+		}
+	};
+
 	@Override
 	protected void startUp()
 	{
+		keyManager.registerKeyListener(exportChunkHotkey);
+		overlayManager.add(surfaceIdDebugOverlay);
 		root = new SceneContext(NUM_ZONES, NUM_ZONES);
 		subs = new SceneContext[MAX_WORLDVIEWS];
 		int numThreads = config.numThreads();
@@ -476,6 +525,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initSkyVao();
 				initProgram();
 				initStoneTextureSampler();
+				authoredTextureOverrideAtlas.initialize();
 				initInterfaceTexture();
 				initSkyTextures();
 				initShadowMap();
@@ -573,6 +623,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	@Override
 	protected void shutDown()
 	{
+		keyManager.unregisterKeyListener(exportChunkHotkey);
+		overlayManager.remove(surfaceIdDebugOverlay);
 		weatherAudio.shutdown();
 		clientThread.invoke(() ->
 		{
@@ -595,6 +647,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
 				shutdownStoneTextureSampler();
+				authoredTextureOverrideAtlas.shutdown();
 				shutdownProgram();
 				shutdownVao();
 				shutdownBuffers();
@@ -758,7 +811,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					"textures", 1,
 					"shadowMap", 2,
 					"environmentMap", 3,
-					"smoothTextures", 4));
+					"smoothTextures", 4,
+					"authoredTextures", 5));
 
 		glUiProgram =
 				UI_PROGRAM.compile(template);
@@ -1150,6 +1204,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniBlockMain = glGetUniformBlockIndex(glProgram, "uniforms");
 		uniTextures = glGetUniformLocation(glProgram, "textures");
 		uniTextureAnimations = glGetUniformLocation(glProgram, "textureAnimations");
+		uniAuthoredTextures = glGetUniformLocation(glProgram, "authoredTextures");
+		uniAuthoredTextureLayers = glGetUniformLocation(glProgram, "authoredTextureLayers");
+		uniAuthoredUnderlayLayers = glGetUniformLocation(glProgram, "authoredUnderlayLayers");
+		uniAuthoredOverlayLayers = glGetUniformLocation(glProgram, "authoredOverlayLayers");
+		uniAuthoredTextureEnabled = glGetUniformLocation(glProgram, "authoredTextureEnabled");
 		uniBase = glGetUniformLocation(glProgram, "base");
 		uniColorblindIntensity = glGetUniformLocation(glProgram, "colorblindIntensity");
 
@@ -3478,6 +3537,24 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			}
 		}
 
+		if (authoredTextureOverrideAtlas.textureId() != 0)
+		{
+			glUseProgram(glProgram);
+			glActiveTexture(GL_TEXTURE5);
+			glBindTexture(GL_TEXTURE_2D_ARRAY, authoredTextureOverrideAtlas.textureId());
+			glUniform1i(uniAuthoredTextures, 5);
+			glUniform1iv(uniAuthoredTextureLayers, authoredTextureOverrideAtlas.textureLayers());
+			glUniform1iv(uniAuthoredUnderlayLayers, authoredTextureOverrideAtlas.underlayLayers());
+			glUniform1iv(uniAuthoredOverlayLayers, authoredTextureOverrideAtlas.overlayLayers());
+			glUniform1i(uniAuthoredTextureEnabled, 1);
+			glActiveTexture(GL_TEXTURE0);
+		}
+		else
+		{
+			glUseProgram(glProgram);
+			glUniform1i(uniAuthoredTextureEnabled, 0);
+		}
+
 		final int canvasHeight = client.getCanvasHeight();
 		final int canvasWidth = client.getCanvasWidth();
 
@@ -4331,6 +4408,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	@Subscribe
 	private void onCommandExecuted(CommandExecuted event)
 	{
+		if (event.getCommand().equals("gpuexport"))
+		{
+			clientThread.invokeLater(this::exportCurrentChunk);
+			return;
+		}
 		if (event.getCommand().equals("gpumem"))
 		{
 			int totalSzKb = 0;

@@ -48,6 +48,9 @@ out vec4 fColor;
 noperspective centroid out float fHsl;
 flat out int fTextureId;
 flat out int fMaterialId;
+flat out int fAuthoredSlot;
+flat out int fUnderlayId;
+flat out int fOverlayId;
 out vec2 fUv;
 out vec2 fTileUv;
 flat out int fShoreEdges;
@@ -140,6 +143,12 @@ void main()
         tex.x & 0x1ff;
     fMaterialId =
         (tex.x >> 9) & 0xf;
+    fAuthoredSlot =
+        (tex.x >> 13) & 0x7;
+    fUnderlayId =
+        (tex.x >> 16) & 0xff;
+    fOverlayId =
+        (tex.x >> 24) & 0xff;
 
     fUv =
         vec2(

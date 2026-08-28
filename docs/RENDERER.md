@@ -1,171 +1,145 @@
-# Core Renderer, Environment, Lighting, and Shadows
+# Renderer architecture
 
-Last updated: 2026-08-26. This describes the active `feature/stone-cleanup` worktree, not every experiment on other branches.
+This document describes the current `feature/stone-cleanup` branch. Read it
+before changing renderer, OpenGL, framebuffer, lighting, shadow, sky, weather,
+or UI code. Current Java and GLSL are authoritative when this document differs
+from implementation.
 
-## Visual goal
+## Art direction
 
-Keep RuneLite's GPU renderer lightweight and recognizable while making the world cleaner and more expressive:
+GpuHD is a lightweight extension of RuneLite's GPU renderer, not a wholesale
+117 HD clone or a photorealistic replacement. Preserve OSRS proportions,
+recognizable layouts, major color families, stylized geometry, and readability.
+Improve material definition, resolution, surface variation, vegetation,
+atmospheric depth, and lighting integration without introducing noisy
+hyperreal textures, inconsistent scale, or excessive contrast.
 
-- stock RuneLite color is the baseline;
-- directional cast shadows provide depth without blanket relighting;
-- material tags allow small, deliberate material responses;
-- palettes and Enhanced Colors remain independent;
-- texture improvements are sparse and curated rather than a global HD pack;
-- UI and login rendering remain stock.
-
-The project explicitly rejected a global derivative-normal diffuse-lighting layer. It made low-poly terrain triangles and tile boundaries obvious, darkened roofs, and caused “shadows” that read as blanket darkness.
-
-## Branch map
-
-| Branch | Purpose | Important warning |
-| --- | --- | --- |
-| `feature/stone-cleanup` | Active baseline: shadows, material tags/palettes, polygon definition, targeted stone cleanup | Check the worktree before editing; refinements may be uncommitted |
-| `feature/material-palette` | Material packing/classification and palette milestone | Useful history for palette regressions |
-| `feature/polygon-definition` | Celestial rays removed; bounded polygon definition added | Basis for the clean renderer direction |
-| `feature/texture-pop` | Texture clarity/perceptual color experiment | LOD bias and AF produced little visible improvement by themselves |
-| `mac-dev` | Low-resolution camera-space celestial-ray prototype | Rejected because rays moved with the camera and became a broad blur |
-| `origin/master` | Larger experimental renderer, including deferred water/material work | Research source only; do not merge wholesale |
-
-## Focused file map
-
-Read these files, not the entire repository:
-
-| Concern | Primary files |
-| --- | --- |
-| Frame setup, environment, GL passes, texture bindings | `GpuPlugin.java` |
-| User settings and defaults | `GpuPluginConfig.java` |
-| Main world shading | `frag.glsl`, `vert.glsl` |
-| Stock texture array/filtering | `TextureManager.java` |
-| Material-owned surface behavior | `docs/MATERIALS.md` |
-| Zone draw ranges and roof-dominant casters | `Zone.java` |
-| Sky rendering | `sky_vert.glsl`, `sky_frag.glsl`, `SkyMode.java` |
-| Shadow depth pass | `shadow_vert.glsl`, `shadow_frag.glsl`, `shadow_debug_*` |
-| Matrix correctness tests | `GpuPluginLightMatrixTest.java` |
-
-Use `rg` for the method/uniform names in this document instead of browsing whole files.
-
-## Current frame path
-
-High-level top-level-world order:
-
-1. `preSceneDraw`/top-level setup resolves one `FrameEnvironment` for the frame.
-2. The RuneLite camera/world projection and main uniforms are uploaded.
-3. If enabled, `renderShadowMap` renders static opaque zone geometry into a 4096² depth map.
-4. `drawSkybox` clears the scene target and draws the selected cubemap plus procedural sun/moon.
-5. RuneLite draws the ordinary world with the existing zone/model VAOs and `vert.glsl`/`frag.glsl`.
-6. `postSceneDraw` draws precipitation and storm mist before leaving the scene FBO.
-7. The scene FBO is blitted to the AWT framebuffer; UI is drawn afterward by the stock UI shader.
-
-The current scene color target is SDR/normalized, not an internal HDR pipeline. Shaders generally clamp to `[0,1]`, and the scene is blitted without a tone-map pass.
-
-### Texture units
-
-| Unit | Current binding |
-| --- | --- |
-| 0 | transient/default operations |
-| 1 | stock `sampler2DArray textures` |
-| 2 | 4096 shadow depth texture |
-| 3 | active sky/environment cubemap |
-| 4 | the stock texture array again through a linear sampler for tagged stone cleanup |
-| 5 | currently free; proposed for a sparse standalone replacement texture |
-
-Do not place two sampler types on the same unit. Restore the active unit after custom texture work.
-
-## Environment state
-
-`GpuPlugin.FrameEnvironment` is the frame-owned source for:
-
-- resolved `SkyMode`;
-- day/night factor;
-- sun and moon directions;
-- active light direction;
-- scene-space celestial direction.
-
-The day/night cycle interpolates the environment when enabled. Fixed `SunPosition` and `MoonPosition` settings own the direction when it is disabled.
-
-RuneLite render-world elevation uses negative Y. The shader's virtual material-lighting convention and the scene-space shadow direction are deliberately different representations. `activeSceneDirection` flips the environment Y exactly once for world/light-depth projection. Do not casually negate or “correct” these vectors.
-
-The visible sun and moon are rendered in `sky_frag.glsl`. The sun is a stylized pale-gold body with radial glare and a small face. It has no angular spoke cookie and no celestial-ray sampling.
-
-## Directional shadows
-
-### What works
-
-- One 4096² `GL_DEPTH_COMPONENT` shadow map.
-- Orthographic directional-light projection centered and texel-snapped near the current camera.
-- Conventional shadow depth: `GL_LESS`, clear depth `1`, clip depth `[-1,1]` remapped in the fragment shader.
-- Main RuneLite scene restored to reversed depth: `GL_GREATER`, clear depth `0`, and `[0,1]` clip control on GL 4.5.
-- 3×3 PCF in `frag.glsl`, constant receiver bias `0.00040`, distance-scaled sub-texel filter radius, and a map-edge confidence fade.
-- Shadow color is a bounded day/night transmission multiplier. It does not compute a global N·L diffuse term.
-- The fixed sun/moon direction and shadow displacement agree: Morning, Noon, and Evening visibly change cast direction and length.
-
-### Critical matrix invariant
-
-`makeLightViewRotation` must remain orthonormal. The correct up vector is `right × forward`. A former sign error in its Y component sheared light space and prevented coherent projected silhouettes.
-
-For any world point `p` and scalar `t`, movement along the light direction must preserve shadow UV:
+## Current render path
 
 ```text
-uv(M * (p + tL)) == uv(M * p)
+RuneScape scene
+  -> SceneUploader / ModelUploader
+  -> reusable zone VAOs/VBOs and draw ranges
+  -> world vertex/fragment shaders
+  -> stock textures, material tags, palettes, water, shadows
+  -> sky/environment, fog, weather and storm mist
+  -> scene resolve/blit
+  -> RuneLite UI
 ```
 
-while depth changes monotonically. `GpuPluginLightMatrixTest` protects this behavior.
+`GpuPlugin` owns frame setup and pass ordering. `SceneUploader` uploads terrain,
+static objects, roofs, and their compact metadata. `ModelUploader` handles
+dynamic and temporary models. `Zone` owns scene buffers, draw ranges, and roof
+shadow coverage metadata.
 
-### Roof policy
+The top-level frame currently performs these major operations:
 
-The shadow pass calls `Zone.renderRoofDominantShadow`, not the visible-scene roof policy.
+1. Resolve frame environment, camera, projections, and world uniforms.
+2. Render the static shadow map when enabled.
+3. Draw the selected sky cubemap and celestial bodies.
+4. Draw the ordinary RuneLite world through the existing zone buffers.
+5. Apply world fragment effects including material response, water, fog, and
+   color controls.
+6. Draw precipitation and storm mist in `postSceneDraw`.
+7. Blit the scene target, then let stock RuneLite draw UI.
 
-- Hidden roofs remain casters when the player enters a building, preventing exterior shadows from popping to the ground-floor outline.
-- Upload-time `CoveredShadowRange` metadata subtracts covered lower wall/fully covered object ranges when an opaque replacement roof exists.
-- Terrain, ground/decorative objects, bridges, and partially protruding objects remain conservative casters.
+## Current systems and ownership
 
-Known tradeoff: a retained hidden roof can shade an interior receiver. Avoid trying to solve that by switching the whole caster set back to visible roofs; an exterior-only result would need a receiver/roof-footprint mask.
+| System | Current owner | Status |
+| --- | --- | --- |
+| Main frame and GL state | `GpuPlugin.java` | Authoritative current path |
+| Terrain/static upload | `SceneUploader.java` | Authoritative current path |
+| Dynamic model upload | `ModelUploader.java` | Authoritative current path |
+| Main world shading | `vert.glsl`, `frag.glsl` | Authoritative current path |
+| Stock texture array | `TextureManager.java` | Authoritative fallback |
+| Exact authored albedo overrides | `AuthoredTextureOverrideAtlas.java`, `authored_texture_overrides.json` | Sparse current path; empty until mapped assets exist |
+| Semantic material tags/palettes | `SurfaceMaterial*.java`, `surface_material_rules.json` | Diagnostic/behavior fallback; not an appearance authority |
+| Sky and celestial environment | `GpuPlugin.java`, `sky_*.glsl`, `SunPosition.java`, `MoonPosition.java` | Current |
+| Directional shadows | `GpuPlugin.java`, `Zone.java`, `shadow_*.glsl` | Current |
+| Weather and storm mist | `GpuPlugin.java`, `weather_*.glsl`, `WeatherAudioController.java` | Current |
+| Water | inline section of `frag.glsl`, `SceneUploader.java` | Current lightweight path |
+| ID debug/export tools | `SurfaceIdDebugOverlay.java`, `SurfaceIdDebugColors.java`, `ChunkObjectExporter.java` | Current discovery tools |
+| Celestial rays | none on this branch | Planned only; see `volumetrics.md` |
+| 3D vegetation | none | Planned only; see `vegetation.md` |
 
-### Shadow limitations
+## Depth, framebuffer, and texture conventions
 
-- Static opaque zone geometry only. Actors, temporary models, and alpha foliage do not currently cast.
-- One orthographic map; no cascades.
-- Shadow-map rendering is expensive at 4096² and runs every active frame.
-- Bias tuning must remain isolated. Normal-dependent bias previously created triangle variation; too-small bias caused map-wide self-shadow acne.
+The main RuneLite scene uses reversed depth: `GL_GREATER`, clear depth `0`,
+and `[0,1]` clip depth where supported. The custom shadow map uses conventional
+depth: `GL_LESS`, clear depth `1`, and `[-1,1]` clip depth remapped in GLSL.
+Never compare or reconstruct one convention as the other.
 
-Acceptance invariant: with Cast Shadows disabled, or where raw shadow occlusion is zero, the shadow subsystem must not change stock surface color.
+The renderer uses the existing scene target and zone buffers; it does not own a
+general HDR pipeline. The current scene color target is normalized/SDR.
 
-## Material and Color Boundary
+| Texture unit | Current binding |
+| ---: | --- |
+| 1 | RuneLite stock `sampler2DArray textures` |
+| 2 | conventional-depth directional shadow map |
+| 3 | active sky/environment cubemap |
+| 4 | stock texture array through linear sampling for stone cleanup |
+| 5 | sparse authored albedo texture array when loaded |
 
-Material tags, palettes, Polygon Definition, texture overrides, normal mapping, stone cleanup, and ground materials are owned by `docs/MATERIALS.md`.
+The stock texture array is 128×128 layers. Authored albedo replacements are a
+sparse standalone array loaded at 256×256 and stored as `GL_SRGB8_ALPHA8` when
+immutable storage is available. Mipmaps are generated. The exact replacement
+path is documented in `textures.md`.
 
-Renderer-level invariants that still apply:
+## Packed world metadata
 
-- material effects are layered around a stock-color fallback;
-- material normals must never recreate blanket world diffuse lighting;
-- Enhanced Colors remains an independent world-only grade and is neutral at saturation/contrast `100`;
-- fog is applied after material/color response;
-- material passes must preserve login/UI isolation and GL state.
+`tex.x` is the existing packed integer vertex field:
 
-## HDR status
+- low 9 bits: stock texture code (`0` untextured, `1..256` cache texture + 1);
+- next 4 bits: `SurfaceMaterial` ID;
+- next 3 bits: authored diagnostic slot;
+- terrain upload uses the remaining high bytes for underlay/overlay source
+  codes (`stored ID + 1`, zero means absent).
 
-There is no true HDR output or internal HDR scene today.
+`tex.w` contains low water shoreline/corner bits and eligibility flags:
 
-Possible future internal-HDR path:
+- `0x100`: terrain;
+- `0x200`: world scenery;
+- `0x800`: roof marker used by current roof/material behavior.
 
-1. Render scene color into RGBA16F.
-2. Resolve to a single-sample FP16 texture.
-3. Apply exposure/white balance/filmic tone mapping in a fullscreen pass.
-4. Draw UI afterward at reference white.
+`vert.glsl` unpacks these values as flat metadata. Do not change the packed
+contract without auditing every uploader, shader, shadow pass, and test.
 
-This can remain cross-platform SDR output and still improve sun, lightning, specular, and bloom. True Windows HDR/macOS EDR requires native presentation changes outside the GPU shader alone and is a separate project.
+## Shadows and atmosphere
 
-## Near-term priorities
+The shadow framebuffer is a 4096² conventional-depth map rendered from static
+opaque zone geometry with roof-dominant caster policy. `makeLightViewRotation`
+must remain orthonormal, and movement along the light direction must preserve
+shadow UV. Actors and alpha foliage are not detailed shadow casters.
 
-1. Keep shadow behavior stable; do not mix material work with matrix/bias changes.
-2. Maintain one resolved environment state for sky, fog, reflections, weather, and shadows.
-3. Keep custom passes deterministic and state-safe on Apple OpenGL 4.1.
-4. Continue material work through `MATERIALS.md`.
-5. Port deferred water incrementally only after the core renderer branch is stable; see `WATER.md`.
+`FrameEnvironment` is the single current source for sky mode, day/night factor,
+sun/moon directions, light direction, and weather coupling. RuneLite render
+world elevation uses negative Y; trace coordinate space before changing signs.
 
-## Focused validation
+Current atmosphere consists of sky cubemaps, distance/custom fog, precipitation,
+storm mist, lightning response, and weather audio. There is no celestial-ray
+pass. Atmospherics-style layered volumetrics are inspiration only; see
+`volumetrics.md` for the separate plan.
 
-- Shadow direction: fixed camera, compare Morning/Noon/Evening.
-- Roof transition: enter/leave a building without moving camera; exterior shadow silhouette should not pop.
-- Material/color changes: follow the controlled comparisons in `MATERIALS.md`.
-- Login/UI: custom world uniforms must not recolor either.
+## Legacy, fallback, and research boundaries
+
+The stock texture array and stock RuneLite color are authoritative fallback
+behavior. Semantic material classifications and Classic/Natural/Lush palettes
+are behavior/diagnostic layers. Exact imported authored mappings, when present,
+are appearance authorities. Old branches and `origin/master` are research
+sources, not merge targets. Do not casually rewrite sky, water, shadows,
+weather, volumetrics, or UI while working on textures or terrain.
+
+Every custom pass must restore framebuffer, viewport, program, VAO, depth state,
+blend state, culling, active texture, sampler bindings, and clip-control state.
+Login and UI rendering must remain isolated.
+
+## Scoped reading and roadmap
+
+- Texture task: `textures.md`, then its owning Java/GLSL/data files.
+- Terrain task: `terrain.md`, `export-pipeline.md`, then owning files.
+- Vegetation task: `vegetation.md`, `terrain.md`, then owning files.
+- Renderer task: this document, then the focused owner files.
+
+The development order is source discovery, exact texture architecture, terrain
+materials, vegetation, terrain polish, then atmospheric overhaul. Do not skip
+to later phases because they are visually exciting.

@@ -223,21 +223,6 @@ public class RuneLite
 
 			final boolean developerMode = options.has("developer-mode") && RuneLiteProperties.getLauncherVersion() == null;
 
-			if (developerMode)
-			{
-				boolean assertions = false;
-				assert assertions = true;
-				if (!assertions)
-				{
-					SwingUtilities.invokeLater(() ->
-						new FatalErrorDialog("Developers should enable assertions; Add `-ea` to your JVM arguments`")
-							.addHelpButtons()
-							.addBuildingGuide()
-							.open());
-					return;
-				}
-			}
-
 			log.info("RuneLite {} (launcher version {}) starting up, args: {}",
 				RuneLiteProperties.getVersion(), MoreObjects.firstNonNull(RuneLiteProperties.getLauncherVersion(), "unknown"),
 				args.length == 0 ? "none" : String.join(" ", args));

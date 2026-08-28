@@ -223,6 +223,7 @@ class SceneUploader
 							? roofs[maplevel][msx][msz] : 0;
 						uploadZoneTile(
 							scene, zone, t, vb, ab,
+							msx, msz,
 							this.level,
 							rid,
 							maplevel,
@@ -298,6 +299,8 @@ class SceneUploader
 		Tile t,
 		GpuIntBuffer vertexBuffer,
 		GpuIntBuffer ab,
+		int sceneX,
+		int sceneY,
 		int shadowLevel,
 		int roofGroupId,
 		int coveringRoofPlane,
@@ -312,10 +315,13 @@ class SceneUploader
 		if (paint != null && drawTile)
 		{
 			Point tilePoint = t.getSceneLocation();
+			int underlayId = scene.getUnderlayIds()[shadowLevel][sceneX][sceneY] & 0xffff;
+			int overlayId = scene.getOverlayIds()[shadowLevel][sceneX][sceneY] & 0xffff;
 			len = upload(scene, paint,
 				t.getRenderLevel(), tilePoint.getX(), tilePoint.getY(),
 				vertexBuffer,
-				tilePoint.getX() * 128 - basex, tilePoint.getY() * 128 - basez
+				tilePoint.getX() * 128 - basex, tilePoint.getY() * 128 - basez,
+				underlayId, overlayId
 			);
 		}
 
@@ -323,7 +329,10 @@ class SceneUploader
 		if (model != null && drawTile)
 		{
 			Point tilePoint = t.getSceneLocation();
-			len += upload(model, tilePoint.getX() << 7, tilePoint.getY() << 7, vertexBuffer);
+			int underlayId = scene.getUnderlayIds()[shadowLevel][sceneX][sceneY] & 0xffff;
+			int overlayId = scene.getOverlayIds()[shadowLevel][sceneX][sceneY] & 0xffff;
+			len += upload(model, tilePoint.getX() << 7, tilePoint.getY() << 7, vertexBuffer,
+				underlayId, overlayId);
 		}
 		if (roofGroupId > 0 && getOpaqueBufferPosition(zone) > roofSurfaceStart)
 		{
@@ -406,6 +415,7 @@ class SceneUploader
 			// unless it is uploaded through its own normal tile/roof grouping.
 			len += uploadZoneTile(
 				scene, zone, bridge, vertexBuffer, ab,
+				sceneX, sceneY,
 				shadowLevel, 0, -1, -1, 0);
 		}
 
@@ -525,14 +535,14 @@ class SceneUploader
 		if (r instanceof Model)
 		{
 			model = (Model) r;
-			uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab);
+			uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab, id);
 		}
 		else if (r instanceof DynamicObject)
 		{
 			model = ((DynamicObject) r).getModelZbuf();
 			if (model != null)
 			{
-				uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab);
+				uploadStaticModel(model, orient, x - basex, y, z - basez, vb, ab, id);
 			}
 		}
 		int endpos = zone.vboA != null ? zone.vboA.vb.position() : 0;
@@ -557,7 +567,7 @@ class SceneUploader
 		}
 	}
 
-	private int upload(Scene scene, SceneTilePaint tile, int tileZ, int tileX, int tileY, GpuIntBuffer vertexBuffer, int lx, int lz)
+	private int upload(Scene scene, SceneTilePaint tile, int tileZ, int tileX, int tileY, GpuIntBuffer vertexBuffer, int lx, int lz, int underlayId, int overlayId)
 	{
 		tileX += scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
 		tileY += scene.getWorldViewId() == WorldView.TOPLEVEL ? GpuPlugin.SCENE_OFFSET : 0;
@@ -603,7 +613,8 @@ class SceneUploader
 		final int hsl3 = nwColor;
 
 		SurfaceMaterial surfaceMaterial = SurfaceMaterialClassifier.classifyPaint(tile);
-		int tex = surfaceMaterial.packTextureCode(tile.getTexture() + 1);
+		int tex = surfaceMaterial.packTerrainTextureCode(tile.getTexture() + 1,
+			surfaceMaterial.getDefaultAuthoredVariant(), underlayId, overlayId);
 		int shoreEdges = TERRAIN_FLAG;
 		if (isWaterTexture(tile.getTexture()))
 		{
@@ -680,7 +691,8 @@ class SceneUploader
 	}
 
 
-	private int upload(SceneTileModel sceneTileModel, int lx, int lz, GpuIntBuffer vertexBuffer)
+	private int upload(SceneTileModel sceneTileModel, int lx, int lz, GpuIntBuffer vertexBuffer,
+		int underlayId, int overlayId)
 	{
 		final int[] faceX = sceneTileModel.getFaceX();
 		final int[] faceY = sceneTileModel.getFaceY();
@@ -730,9 +742,11 @@ class SceneUploader
 			int lz2 = vertexZ[vertex2] - basez;
 
 			int texture = triangleTextures != null ? triangleTextures[i] : -1;
-			int tex = SurfaceMaterialClassifier.classifyTerrainFace(
+			SurfaceMaterial terrainMaterial = SurfaceMaterialClassifier.classifyTerrainFace(
 				sceneTileModel, i, texture, hsl0, hsl1, hsl2)
-				.packTextureCode(texture + 1);
+				;
+			int tex = terrainMaterial.packTerrainTextureCode(texture + 1,
+				terrainMaterial.getDefaultAuthoredVariant(), underlayId, overlayId);
 			vertexBuffer.put22224(lx0, ly0, lz0, hsl0);
 			vertexBuffer.put2222(tex, (int) ((vertexX[vertex0] - lx) * 2f), (int) ((vertexZ[vertex0] - lz) * 2f), TERRAIN_FLAG);
 
@@ -747,7 +761,7 @@ class SceneUploader
 	}
 
 	// scene upload
-	private int uploadStaticModel(Model model, int orient, int x, int y, int z, GpuIntBuffer vb, GpuIntBuffer ab)
+	private int uploadStaticModel(Model model, int orient, int x, int y, int z, GpuIntBuffer vb, GpuIntBuffer ab, int objectId)
 	{
 		final int vertexCount = model.getVerticesCount();
 		final int triangleCount = model.getFaceCount();
@@ -848,18 +862,24 @@ class SceneUploader
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
 			int textureId = faceTextures != null ? faceTextures[face] : -1;
-			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+			int texture = SurfaceMaterialClassifier.classifyObjectMatch(
+				textureId, objectId, 0, 0, level)
 				.packTextureCode(textureId + 1);
 			GpuIntBuffer buf = alpha ? ab : vb;
+			int flags = WORLD_SCENERY_FLAG;
+			if (objectId == 1924 || objectId == 5083 || objectId == 5062 || objectId == 1921)
+			{
+				flags |= SurfaceMaterial.AUTHORED_ROOF_FLAG;
+			}
 
 			buf.put22224(vx1, vy1, vz1, alphaBias | color1);
-			buf.put2222(texture, su0, sv0, WORLD_SCENERY_FLAG);
+			buf.put2222(texture, su0, sv0, flags);
 
 			buf.put22224(vx2, vy2, vz2, alphaBias | color2);
-			buf.put2222(texture, su1, sv1, WORLD_SCENERY_FLAG);
+			buf.put2222(texture, su1, sv1, flags);
 
 			buf.put22224(vx3, vy3, vz3, alphaBias | color3);
-			buf.put2222(texture, su2, sv2, WORLD_SCENERY_FLAG);
+			buf.put2222(texture, su2, sv2, flags);
 
 			len += 3;
 		}

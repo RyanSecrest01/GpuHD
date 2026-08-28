@@ -205,8 +205,6 @@ tasks.withType<Test> {
 // the Java module system. IntelliJ's Gradle-delegated main-class runner creates
 // a JavaExec task, so supply the exports to that child JVM on macOS.
 tasks.withType<JavaExec>().configureEach {
-    enableAssertions = true
-
     if (System.getProperty("os.name").startsWith("Mac")) {
         jvmArgs(
             "--add-exports=java.desktop/com.apple.eawt=ALL-UNNAMED",

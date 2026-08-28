@@ -203,6 +203,7 @@ class TextureManager
 		log.debug("Uploaded textures {}", cnt);
 	}
 
+
 	private static byte[] convertPixels(int[] srcPixels, int width, int height, int textureWidth, int textureHeight)
 	{
 		byte[] pixels = new byte[textureWidth * textureHeight * 4];

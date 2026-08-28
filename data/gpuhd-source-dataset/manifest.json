@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "input_directory": "gpuhd-object-dumps",
+  "export_count": 19,
+  "terrain_observation_count": 1939,
+  "terrain_record_count": 1637,
+  "object_observation_count": 1696,
+  "object_placement_count": 1430,
+  "texture_id_count": 15,
+  "texture_reference_count": 13,
+  "conflict_count": 0,
+  "files": [
+    "terrain.csv",
+    "objects.csv",
+    "terrain-id-usage.csv",
+    "texture-sources.csv",
+    "conflicts.csv",
+    "manifest.json"
+  ]
+}

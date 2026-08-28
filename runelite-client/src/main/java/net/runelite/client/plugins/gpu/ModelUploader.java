@@ -233,7 +233,7 @@ class ModelUploader
 					alphaBias |= faceTransparency(modelTransparency, transparencies != null ? transparencies[faceIdx] & 0xff : 0) << 24;
 					alphaBias |= bias != null ? (bias[faceIdx] & 0xff) << 16 : 0;
 					int textureId = faceTextures != null ? faceTextures[faceIdx] : -1;
-					int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+					int texture = SurfaceMaterialClassifier.classifyTextureMatch(textureId)
 						.packTextureCode(textureId + 1);
 
 					int vbOff = faceIdx * FACE_SIZE;
@@ -596,7 +596,7 @@ class ModelUploader
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
 			int textureId = faceTextures != null ? faceTextures[face] : -1;
-			int texture = SurfaceMaterialClassifier.classifyTexture(textureId)
+			int texture = SurfaceMaterialClassifier.classifyTextureMatch(textureId)
 				.packTextureCode(textureId + 1);
 
 			putfff4(buffer, vx1, vy1, vz1, alphaBias | color1);

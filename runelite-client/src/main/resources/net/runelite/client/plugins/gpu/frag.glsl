@@ -16,6 +16,11 @@
 
 uniform sampler2DArray textures;
 uniform sampler2DArray smoothTextures;
+uniform sampler2DArray authoredTextures;
+uniform int authoredTextureLayers[256];
+uniform int authoredUnderlayLayers[256];
+uniform int authoredOverlayLayers[256];
+uniform int authoredTextureEnabled;
 uniform float brightness;
 uniform float smoothBanding;
 uniform vec4 fogColor;
@@ -62,6 +67,9 @@ in vec4 fColor;
 noperspective centroid in float fHsl;
 flat in int fTextureId;
 flat in int fMaterialId;
+flat in int fAuthoredSlot;
+flat in int fUnderlayId;
+flat in int fOverlayId;
 in vec2 fUv;
 in vec2 fTileUv;
 flat in int fShoreEdges;
@@ -201,6 +209,14 @@ void main()
     vec4 c;
     bool waterSurface = false;
     bool swampWater = false;
+	int authoredLayer = -1;
+	if (authoredTextureEnabled != 0 && (fShoreEdges & 0x100) != 0)
+	{
+		if (fOverlayId > 0) authoredLayer = authoredOverlayLayers[fOverlayId - 1];
+		if (authoredLayer < 0 && fUnderlayId > 0) authoredLayer = authoredUnderlayLayers[fUnderlayId - 1];
+	}
+	if (authoredTextureEnabled != 0 && authoredLayer < 0 && fTextureId > 0)
+		authoredLayer = authoredTextureLayers[fTextureId - 1];
 	bool paletteEligible = (fShoreEdges & 0x300) != 0;
 	float stoneWallAmount = 0.0;
 	if (stoneWallCleanup > 0.0 && fMaterialId == 2
@@ -220,7 +236,7 @@ void main()
     // Normal RuneLite texture rendering
     // ====================================================
 
-    if (fTextureId > 0)
+	if (fTextureId > 0 || authoredLayer >= 0)
     {
         int textureIdx = fTextureId - 1;
         waterSurface = isWaterTexture(textureIdx);
@@ -237,23 +253,17 @@ void main()
 		vec2 textureGradientX = dFdx(sampleUv);
 		vec2 textureGradientY = dFdy(sampleUv);
 
-		vec4 textureColor =
-			texture(
-				textures,
-				vec3(sampleUv, float(textureIdx))
-			);
-		vec4 textureColor0 =
-			textureLod(
-                textures,
-                vec3(sampleUv, float(textureIdx)),
-                0.f
-            );
+		vec4 textureColor = authoredLayer >= 0
+			? texture(authoredTextures, vec3(sampleUv, float(authoredLayer)))
+			: texture(textures, vec3(sampleUv, float(textureIdx)));
+		vec4 textureColor0 = authoredLayer >= 0
+			? textureColor
+			: textureLod(textures, vec3(sampleUv, float(textureIdx)), 0.f);
 
-        if (textureColor0.a < 1.f)
+		if (textureColor0.a < 1.f)
 		{
 			discard;
 		}
-
 		if (stoneWallAmount > 0.0)
 		{
 			vec3 textureLayer = vec3(sampleUv, float(textureIdx));
@@ -373,6 +383,7 @@ void main()
                 rgb,
                 fColor.a
             );
+
     }
 
 	// Material palettes reshape only the chroma of classified world surfaces.

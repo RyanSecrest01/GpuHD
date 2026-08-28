@@ -23,7 +23,7 @@ Atmosphere should be world-anchored, clean, and readable:
 | Working directional depth map | `GpuPlugin.java` (`renderShadowMap`), `shadow_*`, `Zone.java` |
 | Rejected ray prototype | branch `mac-dev`, commit `929e42b49` |
 
-Do not read `WATER.md` for a fog/ray task unless water-weather coupling is explicitly in scope.
+Do not read `water.md` for a fog/ray task unless water-weather coupling is explicitly in scope.
 
 ## Current atmosphere path
 

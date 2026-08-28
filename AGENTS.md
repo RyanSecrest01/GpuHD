@@ -1,124 +1,64 @@
-# RuneLite GPU Experimental Renderer
+# GpuHD agent instructions
 
-## Project Identity
+GpuHD is a lightweight extension of RuneLite's stock GPU plugin. Preserve OSRS
+recognizability, the existing scene upload path, UI/login rendering, and Mac
+performance. Do not implement grass or vegetation unless the user explicitly
+reopens the planned work in `docs/vegetation.md`.
 
-This repository is a lightweight extension of RuneLite's stock GPU plugin.
+## Source of truth
 
-The target is clean, smooth, colorful OSRS with stronger atmosphere, materials, water, and directional depth—not a wholesale 117 HD clone and not a replacement renderer.
+Use this precedence, in order:
 
-Preserve RuneLite's visual identity, existing scene upload path, UI rendering, login rendering, and performance characteristics wherever possible.
+1. Current branch code and checked-in mapping/export data.
+2. Exact imported mappings.
+3. Current scoped architecture documents under `docs/`.
+4. Legacy semantic/material fallback systems.
+5. Old comments, chat conclusions, commits, and other branches.
 
-## Current Working Features
+When documentation disagrees with code, inspect the implementation and update
+the documentation rather than silently coding from stale text.
 
-The documented baseline is `feature/stone-cleanup`. Always confirm the current branch and worktree with `git status --short --branch`.
+Exact mappings are authoritative. Never replace object ID, RuneLite texture ID,
+overlay ID, or underlay ID mappings with broad assumptions such as `STONE ->
+masonry` or `GRASS -> grass`. Semantic classes describe behavior and fallback;
+they do not override explicit appearance assignments.
 
-Working systems include:
+## Scoped reading
 
-- DAY / SUNSET / NIGHT / COSMIC cubemap skies;
-- continuous or fixed sun/moon environment directions;
-- sky-aware custom fog;
-- rain, storm, snow, blizzard, lightning, mist, and weather audio;
-- directional 4096² cast shadows aligned with the visible sun or moon;
-- roof-dominant shadow casters that remain stable when RuneLite hides roofs;
-- CPU material tags packed into the existing vertex format;
-- Classic / Natural / Lush material palettes and material debug view;
-- bounded Polygon Definition without blanket dynamic lighting;
-- targeted vertical-stone cleanup and matte response;
-- inline enhanced water with waves, shoreline effects, sky reflection, and celestial highlights;
-- Enhanced Colors with independent saturation and contrast.
+- Renderer/OpenGL/framebuffer task: `docs/renderer.md`, then owning Java/GLSL.
+- Texture task: `docs/textures.md`, then owning Java/GLSL/data.
+- Terrain task: `docs/terrain.md`, `docs/export-pipeline.md`, then owning files.
+- Vegetation task: `docs/vegetation.md`, `docs/terrain.md`, then owning files.
+- Water task: `docs/water.md`, then owning files.
+- Atmosphere/fog/rays task: `docs/volumetrics.md`, then owning files.
 
-Celestial rays are intentionally absent from this branch. `mac-dev` contains a rejected camera-space prototype. `origin/master` contains larger experimental systems and is a research source, not a wholesale merge target.
+Do not read or rewrite the entire repository for a scoped task. `README.md`
+contains general RuneLite project information only.
 
-## Important OpenGL and RuneLite Invariants
+## Change discipline
 
-- Stock RuneLite color is authoritative. Never restore blanket per-triangle diffuse/dynamic lighting.
-- Unoccluded pixels must remain stock before independent palette, reflection, weather, and color effects.
-- RuneLite scene depth is reversed: `GL_GREATER`, clear depth `0`, and `[0,1]` clip depth where supported.
-- The custom shadow framebuffer uses conventional depth: `GL_LESS`, clear depth `1`, and `[-1,1]` clip depth remapped in GLSL.
-- Never compare or reconstruct one depth convention as though it were the other.
-- RuneLite render-world elevation uses negative Y. Do not negate an environment/light vector without tracing its coordinate space.
-- `makeLightViewRotation` must remain orthonormal; movement along the light direction must preserve shadow UV.
-- Reuse existing zone VAOs/VBOs and compact draw ranges. Do not duplicate the world mesh without an explicit design reason.
-- Restore every modified GL state: draw/read framebuffer, viewport, program, VAO, depth mask/function, clear depth, blending/equation, culling, active texture, sampler bindings, and clip-control mode.
-- Keep custom world effects gated to `GameState.LOGGED_IN` or supply a deterministic login fallback.
-- Do not change UI rendering unless the task explicitly requires it.
-- Avoid temporal history on macOS until a deterministic current-frame version is proven stable.
+Before changing rendering, inspect the owning Java and GLSL path, make the
+smallest useful change, compile, and stop for user visual testing. Do not
+repeatedly launch or tune RuneLite without new user evidence. Do not rewrite
+unrelated renderer systems.
 
-## Agent Autonomy
+Preserve existing skyboxes, day/night and celestial environment, directional
+lighting, shadow maps, weather/audio/mist, water, texture overrides,
+export/debug tooling, and UI/login behavior. Restore all modified OpenGL state,
+including framebuffer, viewport, program, VAO, depth, blend, culling, active
+texture, sampler, and clip-control state.
 
-- Make reasonable, reversible, in-scope implementation decisions without repeatedly asking for permission.
-- Inspect current code and documentation before assuming an old chat conclusion is still true.
-- Preserve unrelated user changes in a dirty worktree.
-- Prefer the smallest complete change that tests one subsystem or hypothesis.
-- Do not broaden a task into a renderer rewrite, new pass architecture, dependency change, asset-license decision, destructive Git action, or external publication without clear authorization.
-- If a required choice would materially change visual direction, performance, compatibility, or project scope, stop and ask the user.
-- When architecture or a verified limitation changes, update the relevant design document in the same change.
+Main-scene depth is reversed (`GL_GREATER`, clear `0`, `[0,1]` clip where
+available). The custom shadow map uses conventional depth (`GL_LESS`, clear `1`,
+`[-1,1]` clip remapped in GLSL). RuneLite render-world elevation uses negative
+Y; trace coordinate space before changing signs.
 
-## Efficiency Rules
+Before editing, run `git status --short --branch` and preserve unrelated user
+changes. After code changes, use:
 
-1. Read `AGENTS.md`, then only the design document relevant to the task.
-2. Run `git status --short --branch` before editing.
-3. Use the focused file/anchor map in the selected document and `rg` for symbols. Do not begin with a full-repository scan.
-4. Inspect the current diff before rereading unchanged implementation.
-5. Isolate one subsystem per iteration. Do not tune shadows, materials, water, and volumetrics together.
-6. Reuse existing tests, shaders, VAOs, buffers, assets, and helpers before creating new infrastructure.
-7. Do not repeatedly launch RuneLite for diagnosis. The user's Mac is resource-constrained.
-8. Do not browse the internet unless the task needs current external documentation, licensing, or a referenced source not available locally.
-9. Report exact files changed, validation performed, and the single remaining visual question.
-
-## Three-Attempt Limit
-
-For the same visual defect or technical hypothesis, make at most three evidence-driven implementation attempts.
-
-Each attempt must change one identified cause and must be followed by compilation or a focused test. Do not make three blind parameter tweaks.
-
-After the third unsuccessful attempt:
-
-- stop editing that subsystem;
-- summarize what was tried and what evidence was learned;
-- identify the unresolved variable or architectural limitation;
-- request one controlled screenshot, runtime observation, debugger trace, or user decision before continuing.
-
-A new attempt cycle begins only when new evidence changes the hypothesis.
-
-## Compile, Then Stop for Visual Testing
-
-After a meaningful visual change:
-
-```bash
+```text
 ./gradlew :client:compileJava :client:processResources --offline
 git diff --check
 ```
 
-Run only focused tests relevant to the subsystem. Common renderer tests are:
-
-```bash
-./gradlew :client:test \
-  --tests net.runelite.client.plugins.gpu.GpuPluginLightMatrixTest \
-  --tests net.runelite.client.plugins.gpu.SurfaceMaterialClassifierTest \
-  --offline
-```
-
-`ShaderTest` skips unless `glslangValidator` is supplied:
-
-```bash
-./gradlew :client:test \
-  --tests net.runelite.client.plugins.gpu.ShaderTest \
-  -PglslangPath="$(command -v glslangValidator)" --offline
-```
-
-Once compilation and focused tests pass, STOP. Do not continue artistic tuning without new in-game evidence. Ask the user to run one controlled visual comparison and specify the camera, location, settings, and toggles needed.
-
-## Design Documentation
-
-Subsystem architecture is documented under `docs/`.
-
-Read only the document relevant to the current task.
-
-- `docs/RENDERER.md` — core renderer, environment, lighting and shadows
-- `docs/MATERIALS.md` — material system, texture overrides, normal mapping and ground materials
-- `docs/WATER.md` — advanced water roadmap
-- `docs/VOLUMETRICS.md` — celestial rays, fog and atmospheric effects
-- `docs/VEGETATION.md` — procedural grass and future vegetation
-
-Do not load every design document for unrelated tasks.
+Stop after successful compilation when appearance still needs manual testing.

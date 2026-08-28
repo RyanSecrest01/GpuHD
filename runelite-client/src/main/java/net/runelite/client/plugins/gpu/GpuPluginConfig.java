@@ -27,6 +27,7 @@ package net.runelite.client.plugins.gpu;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.config.Range;
 import static net.runelite.client.plugins.gpu.GpuPlugin.MAX_DISTANCE;
 import static net.runelite.client.plugins.gpu.GpuPlugin.MAX_FOG_DEPTH;
@@ -433,7 +434,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialDebug",
 		name = "Show material tags",
 		description = "Displays CPU-classified world materials for palette diagnostics.",
-		position = 24
+		position = 25
 	)
 	default boolean materialDebug()
 	{
@@ -441,10 +442,21 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "surfaceIdDebugMode",
+		name = "Surface ID debug",
+		description = "Colors world objects or terrain tiles by their exact source ID for texture-authoring diagnostics.",
+		position = 26
+	)
+	default SurfaceIdDebugMode surfaceIdDebugMode()
+	{
+		return SurfaceIdDebugMode.OFF;
+	}
+
+	@ConfigItem(
 			keyName = "shadowDebug",
 			name = "Show shadow map",
 			description = "Displays the shadow depth texture for projection diagnostics.",
-			position = 25
+		position = 27
 	)
 	default boolean shadowDebug()
 	{
@@ -548,5 +560,16 @@ public interface GpuPluginConfig extends Config
 	default MoonPosition moonPosition()
 	{
 		return MoonPosition.SOUTHEAST;
+	}
+
+	@ConfigItem(
+		keyName = "exportChunkHotkey",
+		name = "Export terrain chunk",
+		description = "Exports exact terrain and object source IDs from the current 8x8 world chunk.",
+		position = 100
+	)
+	default Keybind exportChunkHotkey()
+	{
+		return Keybind.NOT_SET;
 	}
 }
