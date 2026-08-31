@@ -24,7 +24,14 @@
  */
 package net.runelite.client.plugins.gpu;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import javax.imageio.ImageIO;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Texture;
@@ -39,7 +46,7 @@ import static org.lwjgl.opengl.GL42C.glTexStorage3D;
 class TextureManager
 {
 	static final int TEXTURE_COUNT = 256;
-	private static final int TEXTURE_SIZE = 128;
+	private static final int TEXTURE_SIZE = 512;
 
 	int initTextureArray(TextureProvider textureProvider)
 	{
@@ -49,25 +56,27 @@ class TextureManager
 		}
 
 		Texture[] textures = textureProvider.getTextures();
+		HdTextureRegistry registry = HdTextureRegistry.get();
+		int layers = registry.getLayerCount();
 
 		int textureArrayId = glGenTextures();
 		glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayId);
 		if (GL.getCapabilities().glTexStorage3D != 0)
 		{
-			glTexStorage3D(GL_TEXTURE_2D_ARRAY, 8, GL_RGBA8, TEXTURE_SIZE, TEXTURE_SIZE, textures.length);
+			glTexStorage3D(GL_TEXTURE_2D_ARRAY, 10, GL_RGBA8, TEXTURE_SIZE, TEXTURE_SIZE, layers);
 		}
 		else
 		{
 			int size = TEXTURE_SIZE;
-			for (int i = 0; i < 8; i++)
+			for (int i = 0; i < 10; i++)
 			{
-				glTexImage3D(GL_TEXTURE_2D_ARRAY, i, GL_RGBA8, size, size, textures.length, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-				size /= 2;
+				glTexImage3D(GL_TEXTURE_2D_ARRAY, i, GL_RGBA8, size, size, layers, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+				size = Math.max(1, size / 2);
 			}
 		}
 
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 
@@ -153,58 +162,125 @@ class TextureManager
 	private void updateTextures(TextureProvider textureProvider, int textureArrayId)
 	{
 		Texture[] textures = textureProvider.getTextures();
+		HdTextureRegistry registry = HdTextureRegistry.get();
 
 		glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayId);
 
 		int cnt = 0;
+		List<Integer> alphaMismatches = new ArrayList<>();
+		ByteBuffer pixelBuffer = ByteBuffer.allocateDirect(TEXTURE_SIZE * TEXTURE_SIZE * 4);
 		for (int textureId = 0; textureId < textures.length; textureId++)
 		{
 			Texture texture = textures[textureId];
 			if (texture != null)
 			{
-				int[] srcPixels = textureProvider.load(textureId);
+				int[] originalPixels = textureProvider.load(textureId);
+				int originalSize = originalPixels == null ? 0 : (int) Math.sqrt(originalPixels.length);
+				boolean[] alphaMismatch = new boolean[1];
+				byte[] authored = loadAsset(registry.getVanilla(textureId), originalPixels,
+					originalSize, alphaMismatch);
+				if (alphaMismatch[0])
+				{
+					alphaMismatches.add(textureId);
+				}
+				int[] srcPixels = authored == null ? originalPixels : null;
 				if (srcPixels == null)
 				{
-					log.warn("No pixels for texture {}!", textureId);
-					continue; // this can't happen
+					if (authored == null)
+					{
+						log.warn("No pixels for texture {}!", textureId);
+						continue;
+					}
 				}
 
 				++cnt;
 
-				if (srcPixels.length != TEXTURE_SIZE * TEXTURE_SIZE)
-				{
-					// The texture storage is 128x128 bytes, and will only work correctly with the
-					// 128x128 textures from high detail mode
-					log.warn("Texture size for {} is {}!", textureId, srcPixels.length);
-					continue;
-				}
-
-				byte[] pixels = convertPixels(srcPixels, TEXTURE_SIZE, TEXTURE_SIZE, TEXTURE_SIZE, TEXTURE_SIZE);
-				ByteBuffer pixelBuffer = ByteBuffer.allocateDirect(pixels.length);
+				int sourceSize = srcPixels == null ? 0 : (int) Math.sqrt(srcPixels.length);
+				byte[] pixels = authored != null ? authored : convertPixels(srcPixels, sourceSize, sourceSize, TEXTURE_SIZE, TEXTURE_SIZE);
+				pixelBuffer.clear();
 				pixelBuffer.put(pixels);
 				pixelBuffer.flip();
 				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, textureId, TEXTURE_SIZE, TEXTURE_SIZE,
 					1, GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer);
 			}
 		}
+		for (HdTextureRegistry.Asset asset : registry.getSyntheticAssets())
+		{
+			byte[] pixels = loadAsset(asset, null, 0, null);
+			pixelBuffer.clear();
+			pixelBuffer.put(pixels);
+			pixelBuffer.flip();
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, asset.getLayer(), TEXTURE_SIZE, TEXTURE_SIZE,
+				1, GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer);
+		}
 
 		log.debug("Uploaded textures {}", cnt);
+		if (!alphaMismatches.isEmpty())
+		{
+			log.warn("Restored original alpha masks for {} remastered textures whose PNG alpha differed: {}",
+				alphaMismatches.size(), alphaMismatches);
+		}
+	}
+
+	private static byte[] loadAsset(HdTextureRegistry.Asset asset, int[] original,
+		int originalSize, boolean[] alphaMismatch)
+	{
+		if (asset == null)
+		{
+			return null;
+		}
+		try (InputStream input = TextureManager.class.getClassLoader().getResourceAsStream(asset.getResource()))
+		{
+			if (input == null)
+			{
+				throw new IllegalArgumentException("Missing HD texture asset " + asset.getResource());
+			}
+			BufferedImage source = ImageIO.read(input);
+			if (source == null)
+			{
+				throw new IllegalArgumentException("Unreadable HD texture asset " + asset.getResource());
+			}
+			BufferedImage image = new BufferedImage(TEXTURE_SIZE, TEXTURE_SIZE, BufferedImage.TYPE_INT_ARGB);
+			Graphics2D graphics = image.createGraphics();
+			graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+			graphics.drawImage(source, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE, null); graphics.dispose();
+			byte[] rgba = new byte[TEXTURE_SIZE * TEXTURE_SIZE * 4]; int p = 0;
+			for (int y = 0; y < TEXTURE_SIZE; y++) for (int x = 0; x < TEXTURE_SIZE; x++)
+			{
+				int argb = image.getRGB(x, y); rgba[p++] = (byte) (argb >> 16); rgba[p++] = (byte) (argb >> 8);
+				rgba[p++] = (byte) argb;
+				int alpha = argb >>> 24;
+				if (original != null && originalSize > 0)
+				{
+					int sourcePixel = original[(y * originalSize / TEXTURE_SIZE) * originalSize
+						+ x * originalSize / TEXTURE_SIZE];
+					int originalAlpha = sourcePixel == 0 ? 0 : 255;
+					if (alphaMismatch != null && alpha != originalAlpha)
+					{
+						alphaMismatch[0] = true;
+					}
+					alpha = originalAlpha;
+				}
+				rgba[p++] = (byte) alpha;
+			}
+			return rgba;
+		}
+		catch (Exception ex)
+		{
+			throw new IllegalArgumentException("Unable to load " + asset.getResource(), ex);
+		}
 	}
 
 	private static byte[] convertPixels(int[] srcPixels, int width, int height, int textureWidth, int textureHeight)
 	{
 		byte[] pixels = new byte[textureWidth * textureHeight * 4];
-
 		int pixelIdx = 0;
-		int srcPixelIdx = 0;
-
-		int offset = (textureWidth - width) * 4;
-
-		for (int y = 0; y < height; y++)
+		for (int y = 0; y < textureHeight; y++)
 		{
-			for (int x = 0; x < width; x++)
+			int sy = y * height / textureHeight;
+			for (int x = 0; x < textureWidth; x++)
 			{
-				int rgb = srcPixels[srcPixelIdx++];
+				int rgb = srcPixels[sy * width + x * width / textureWidth];
 				if (rgb != 0)
 				{
 					pixels[pixelIdx++] = (byte) (rgb >> 16);
@@ -217,7 +293,6 @@ class TextureManager
 					pixelIdx += 4;
 				}
 			}
-			pixelIdx += offset;
 		}
 		return pixels;
 	}

@@ -35,6 +35,7 @@ import java.awt.Image;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
@@ -56,6 +57,8 @@ import net.runelite.api.FloatProjection;
 import net.runelite.api.GameObject;
 import net.runelite.api.GameState;
 import net.runelite.api.Model;
+import net.runelite.api.Player;
+import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.Perspective;
 import net.runelite.api.Projection;
 import net.runelite.api.Renderable;
@@ -119,8 +122,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private static final int UNIFORM_BUFFER_SIZE = 5 * Float.BYTES;
 	private static final int NUM_ZONES = Constants.EXTENDED_SCENE_SIZE >> 3;
 	private static final int MAX_WORLDVIEWS = 4096;
-	private static final int SURFACE_DETAIL_INSTANCE_FLOATS = 6;
-	private static final int SURFACE_DETAIL_VERTICES_PER_INSTANCE = 60;
+	private static final int SURFACE_DETAIL_INSTANCE_FLOATS = 9;
+	// Ten two-segment grass blades (120 vertices). Scatter details use the first
+	// 60 vertices of the same instanced mesh and discard the remainder in GLSL.
+	private static final int SURFACE_DETAIL_VERTICES_PER_INSTANCE = 120;
 	private static final int MAX_SURFACE_DETAIL_INSTANCES = 32768;
 	private static final float CELESTIAL_PEAK_ELEVATION = (float) Math.toRadians(78.0);
 
@@ -200,9 +205,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	static final Shader WEATHER_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "weather_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "weather_frag.glsl");
-	static final Shader ATMOSPHERE_PROGRAM = new Shader()
-		.add(GL_VERTEX_SHADER, "atmosphere_vert.glsl")
-		.add(GL_FRAGMENT_SHADER, "atmosphere_frag.glsl");
 	static final Shader VOLUMETRIC_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "volumetric_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "volumetric_frag.glsl");
@@ -212,6 +214,15 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	static final Shader GRASS_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "grass_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "grass_frag.glsl");
+	static final Shader GRASS_GLB_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "grass_glb_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "grass_glb_frag.glsl");
+	static final Shader GRASS_GLB_DEBUG_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "grass_glb_debug_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "grass_debug_frag.glsl");
+	static final Shader GRASS_DEBUG_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "grass_debug_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "grass_debug_frag.glsl");
 	static final Shader WATER_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "water_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "water_frag.glsl");
@@ -225,18 +236,33 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private int glSkyProgram;
 	private int glWeatherProgram;
-	private int glAtmosphereProgram;
 	private int glVolumetricProgram;
 	private int glVolumetricCompositeProgram;
 	private int glGrassProgram;
+	private int glGrassGlbProgram;
+	private int glGrassGlbDebugProgram;
+	private int glGrassDebugProgram;
+	private int vaoGrassGlbHandle;
+	private int vboGrassGlbHandle;
+	private int eboGrassGlbHandle;
+	private int grassGlbIndexCount;
+	private float[] grassGlbNormalizedMin;
+	private float[] grassGlbNormalizedMax;
+	private int uniGrassGlbProjection, uniGrassGlbCamera, uniGrassGlbFocus;
+	private int uniGrassGlbWorldOffset, uniGrassGlbTime, uniGrassGlbDrawRadius;
+	private int uniGrassGlbHeightScale, uniGrassGlbWindStrength, uniGrassGlbWeatherMode;
+	private int uniGrassGlbSlopeFollow;
+	private int uniGrassGlbLightDirection, uniGrassGlbLightIntensity, uniGrassGlbAmbientLight;
+	private int uniGrassGlbFogColor, uniGrassGlbNightFactor, uniGrassGlbShadowMap;
+	private int uniGrassGlbShadowLightProj, uniGrassGlbShadowsEnabled, uniGrassGlbShadowStrength;
+	private int uniGrassGlbMaterialLightingEnabled, uniGrassGlbMaterialLightingStrength;
+	private int uniGrassGlbDebugMode;
+	private int uniGrassGlbDebugProjection, uniGrassGlbDebugBaseCenter;
+	private int uniGrassGlbDebugScale, uniGrassGlbDebugColor;
 	private int glWaterProgram;
 	private int uniWeatherProjection, uniWeatherCamera, uniWeatherTime;
 	private int uniWeatherRadius, uniWeatherFallSpeed, uniWeatherWind, uniWeatherStreakLength;
 	private int uniWeatherSnow, uniWeatherStorm, uniWeatherSevere, uniWeatherIntensity;
-	private int uniAtmosphereProjection, uniAtmosphereCamera, uniAtmosphereAnchor;
-	private int uniAtmosphereTime, uniAtmosphereRadius, uniAtmosphereWind;
-	private int uniAtmosphereDensity, uniAtmosphereBlizzard, uniAtmosphereLightning;
-	private int uniAtmosphereLightDirection, uniAtmosphereNightFactor;
 	private int uniVolumetricSceneColor, uniVolumetricSceneDepth, uniVolumetricUvTransform;
 	private int uniVolumetricCelestialRayStrength, uniVolumetricMoonProfile;
 	private int uniVolumetricWeatherMode, uniVolumetricWorldProjection;
@@ -276,10 +302,21 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private final WeatherAudioController weatherAudio = new WeatherAudioController();
 	private long lastThunderCycle = Long.MIN_VALUE;
 	private long grassTimeOriginMillis = -1L;
+	private boolean grassPocStatusLogged;
+	private boolean grassDebugDrawLogged;
+	private boolean grassGlbBoundsLogged;
 	private int vaoSkyHandle;
 	private int vboSkyHandle;
 	private int vaoGrassHandle;
 	private int vboGrassInstanceHandle;
+	private int vaoGrassDebugHandle;
+	private int vboGrassDebugHandle;
+	private int uniGrassDebugProjection;
+	private int uniGrassDebugColor;
+	private int uniGrassDebugBaseCenter;
+	private int uniGrassDebugInstanceSpacing;
+	private final FloatBuffer grassDebugBuffer =
+		GpuFloatBuffer.allocateDirect(576);
 	private final FloatBuffer grassInstanceBuffer =
 		GpuFloatBuffer.allocateDirect(
 			MAX_SURFACE_DETAIL_INSTANCES * SURFACE_DETAIL_INSTANCE_FLOATS);
@@ -499,6 +536,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniMaterialDebugMode;
 	private int uniMaterialLightingEnabled;
 	private int uniMaterialLightingStrength;
+	private int uniDirectionalLightingEnabled;
+	private int uniDirectionalLightingStrength, uniEnvironmentFillStrength;
 	private int uniWetSurfacesEnabled;
 	private int uniWetSurfaceStrength;
 	private int uniTick;
@@ -626,6 +665,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initVao();
 				initSkyVao();
 				initGrassVao();
+				initGrassGlbVao();
+				initGrassDebugVao();
 				initProgram();
 				authoredMaterialAtlas.initialize();
 				initInterfaceTexture();
@@ -749,6 +790,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 				shutdownSkyTextures();
 				shutdownGrassVao();
+				shutdownGrassDebugVao();
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
 				authoredMaterialAtlas.shutdown();
@@ -944,10 +986,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glAtmosphereShadowFilterProgram =
 			ATMOSPHERE_SHADOW_FILTER_PROGRAM.compile(template);
 		glWeatherProgram = WEATHER_PROGRAM.compile(template);
-		glAtmosphereProgram = ATMOSPHERE_PROGRAM.compile(template);
 		glVolumetricProgram = VOLUMETRIC_PROGRAM.compile(template);
 		glVolumetricCompositeProgram = VOLUMETRIC_COMPOSITE_PROGRAM.compile(template);
 		glGrassProgram = GRASS_PROGRAM.compile(template);
+		glGrassGlbProgram = GRASS_GLB_PROGRAM.compile(template);
+		glGrassGlbDebugProgram = GRASS_GLB_DEBUG_PROGRAM.compile(template);
+		glGrassDebugProgram = GRASS_DEBUG_PROGRAM.compile(template);
 		glWaterProgram = WATER_PROGRAM.compile(template);
 
 		glBindVertexArray(0);
@@ -1504,6 +1548,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniMaterialDebugMode = glGetUniformLocation(glProgram, "materialDebugMode");
 		uniMaterialLightingEnabled = glGetUniformLocation(glProgram, "materialLightingEnabled");
 		uniMaterialLightingStrength = glGetUniformLocation(glProgram, "materialLightingStrength");
+		uniDirectionalLightingEnabled = glGetUniformLocation(
+			glProgram, "directionalLightingEnabled");
+		uniDirectionalLightingStrength = glGetUniformLocation(
+			glProgram, "directionalLightingStrength");
+		uniEnvironmentFillStrength = glGetUniformLocation(
+			glProgram, "environmentFillStrength");
 		uniWetSurfacesEnabled = glGetUniformLocation(glProgram, "wetSurfacesEnabled");
 		uniWetSurfaceStrength = glGetUniformLocation(glProgram, "wetSurfaceStrength");
 		uniTick = glGetUniformLocation(glProgram, "tick");
@@ -1533,17 +1583,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniWeatherStorm = glGetUniformLocation(glWeatherProgram, "storm");
 		uniWeatherSevere = glGetUniformLocation(glWeatherProgram, "severe");
 		uniWeatherIntensity = glGetUniformLocation(glWeatherProgram, "intensity");
-		uniAtmosphereProjection = glGetUniformLocation(glAtmosphereProgram, "projection");
-		uniAtmosphereCamera = glGetUniformLocation(glAtmosphereProgram, "cameraPosition");
-		uniAtmosphereAnchor = glGetUniformLocation(glAtmosphereProgram, "anchorPosition");
-		uniAtmosphereTime = glGetUniformLocation(glAtmosphereProgram, "time");
-		uniAtmosphereRadius = glGetUniformLocation(glAtmosphereProgram, "radius");
-		uniAtmosphereWind = glGetUniformLocation(glAtmosphereProgram, "wind");
-		uniAtmosphereDensity = glGetUniformLocation(glAtmosphereProgram, "density");
-		uniAtmosphereBlizzard = glGetUniformLocation(glAtmosphereProgram, "blizzard");
-		uniAtmosphereLightning = glGetUniformLocation(glAtmosphereProgram, "lightningFlash");
-		uniAtmosphereLightDirection = glGetUniformLocation(glAtmosphereProgram, "lightDirection");
-		uniAtmosphereNightFactor = glGetUniformLocation(glAtmosphereProgram, "nightFactor");
 		uniVolumetricSceneColor = glGetUniformLocation(glVolumetricProgram, "sceneColor");
 		uniVolumetricSceneDepth = glGetUniformLocation(glVolumetricProgram, "sceneDepth");
 		uniVolumetricUvTransform = glGetUniformLocation(glVolumetricProgram, "sceneUvTransform");
@@ -1572,6 +1611,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniVolumetricCompositeRayTexelSize = glGetUniformLocation(
 			glVolumetricCompositeProgram, "rayTexelSize");
 		uniGrassProjection = glGetUniformLocation(glGrassProgram, "projection");
+		uniGrassDebugProjection = glGetUniformLocation(glGrassDebugProgram, "projection");
+		uniGrassDebugColor = glGetUniformLocation(glGrassDebugProgram, "debugColor");
+		uniGrassDebugBaseCenter = glGetUniformLocation(glGrassDebugProgram, "baseCenter");
+		uniGrassDebugInstanceSpacing = glGetUniformLocation(
+			glGrassDebugProgram, "instanceSpacing");
+		uniGrassGlbDebugProjection = glGetUniformLocation(
+			glGrassGlbDebugProgram, "projection");
+		uniGrassGlbDebugBaseCenter = glGetUniformLocation(
+			glGrassGlbDebugProgram, "baseCenter");
+		uniGrassGlbDebugScale = glGetUniformLocation(
+			glGrassGlbDebugProgram, "modelScale");
+		uniGrassGlbDebugColor = glGetUniformLocation(
+			glGrassGlbDebugProgram, "debugColor");
 		uniGrassCamera = glGetUniformLocation(glGrassProgram, "cameraPosition");
 		uniGrassFocus = glGetUniformLocation(glGrassProgram, "focusPosition");
 		uniGrassWorldOffset = glGetUniformLocation(glGrassProgram, "worldOffset");
@@ -1602,6 +1654,30 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glGrassProgram, "materialLightingStrength");
 		uniGrassWetSurfacesEnabled = glGetUniformLocation(glGrassProgram, "wetSurfacesEnabled");
 		uniGrassWetSurfaceStrength = glGetUniformLocation(glGrassProgram, "wetSurfaceStrength");
+		uniGrassGlbProjection = glGetUniformLocation(glGrassGlbProgram, "projection");
+		uniGrassGlbCamera = glGetUniformLocation(glGrassGlbProgram, "cameraPosition");
+		uniGrassGlbFocus = glGetUniformLocation(glGrassGlbProgram, "focusPosition");
+		uniGrassGlbWorldOffset = glGetUniformLocation(glGrassGlbProgram, "worldOffset");
+		uniGrassGlbTime = glGetUniformLocation(glGrassGlbProgram, "time");
+		uniGrassGlbDrawRadius = glGetUniformLocation(glGrassGlbProgram, "drawRadius");
+		uniGrassGlbHeightScale = glGetUniformLocation(glGrassGlbProgram, "heightScale");
+		uniGrassGlbWindStrength = glGetUniformLocation(glGrassGlbProgram, "windStrength");
+		uniGrassGlbSlopeFollow = glGetUniformLocation(glGrassGlbProgram, "slopeFollow");
+		uniGrassGlbWeatherMode = glGetUniformLocation(glGrassGlbProgram, "weatherMode");
+		uniGrassGlbLightDirection = glGetUniformLocation(glGrassGlbProgram, "lightDirection");
+		uniGrassGlbLightIntensity = glGetUniformLocation(glGrassGlbProgram, "lightIntensity");
+		uniGrassGlbAmbientLight = glGetUniformLocation(glGrassGlbProgram, "ambientLight");
+		uniGrassGlbFogColor = glGetUniformLocation(glGrassGlbProgram, "fogColor");
+		uniGrassGlbNightFactor = glGetUniformLocation(glGrassGlbProgram, "nightFactor");
+		uniGrassGlbShadowMap = glGetUniformLocation(glGrassGlbProgram, "shadowMap");
+		uniGrassGlbShadowLightProj = glGetUniformLocation(glGrassGlbProgram, "shadowLightProj");
+		uniGrassGlbShadowsEnabled = glGetUniformLocation(glGrassGlbProgram, "shadowsEnabled");
+		uniGrassGlbShadowStrength = glGetUniformLocation(glGrassGlbProgram, "shadowStrength");
+		uniGrassGlbMaterialLightingEnabled = glGetUniformLocation(
+			glGrassGlbProgram, "materialLightingEnabled");
+		uniGrassGlbMaterialLightingStrength = glGetUniformLocation(
+			glGrassGlbProgram, "materialLightingStrength");
+		uniGrassGlbDebugMode = glGetUniformLocation(glGrassGlbProgram, "debugMode");
 		uniWaterProjection = glGetUniformLocation(glWaterProgram, "projection");
 		uniWaterBase = glGetUniformLocation(glWaterProgram, "base");
 		uniWaterSceneColor = glGetUniformLocation(glWaterProgram, "sceneColor");
@@ -1673,12 +1749,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glWeatherProgram = 0;
 		}
 
-		if (glAtmosphereProgram != 0)
-		{
-			glDeleteProgram(glAtmosphereProgram);
-			glAtmosphereProgram = 0;
-		}
-
 		if (glVolumetricProgram != 0)
 		{
 			glDeleteProgram(glVolumetricProgram);
@@ -1695,6 +1765,18 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			glDeleteProgram(glGrassProgram);
 			glGrassProgram = 0;
+		}
+
+		if (glGrassGlbProgram != 0)
+		{
+			glDeleteProgram(glGrassGlbProgram);
+			glGrassGlbProgram = 0;
+		}
+
+		if (glGrassGlbDebugProgram != 0)
+		{
+			glDeleteProgram(glGrassGlbDebugProgram);
+			glGrassGlbDebugProgram = 0;
 		}
 
 		if (glWaterProgram != 0)
@@ -1789,6 +1871,85 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glVertexAttribPointer(1, 2, GL_FLOAT, false,
 			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
 		glVertexAttribDivisor(1, 1);
+		glEnableVertexAttribArray(6);
+		glVertexAttribPointer(6, 3, GL_FLOAT, false,
+			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 6L * Float.BYTES);
+		glVertexAttribDivisor(6, 1);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	private void initGrassGlbVao()
+	{
+		try
+		{
+			GlbGrassMesh mesh = GlbGrassMesh.load(
+				"/net/runelite/client/plugins/gpu/glb/grass green by Steve B - 8q6D0D_SuBE.glb");
+			vaoGrassGlbHandle = glGenVertexArrays();
+			vboGrassGlbHandle = glGenBuffers();
+			eboGrassGlbHandle = glGenBuffers();
+			grassGlbIndexCount = mesh.indices.length;
+			grassGlbNormalizedMin = mesh.normalizedMin.clone();
+			grassGlbNormalizedMax = mesh.normalizedMax.clone();
+			FloatBuffer vertices = GpuFloatBuffer.allocateDirect(mesh.vertices.length);
+			vertices.put(mesh.vertices).flip();
+			IntBuffer indices = ByteBuffer.allocateDirect(
+				mesh.indices.length * Integer.BYTES)
+				.order(java.nio.ByteOrder.nativeOrder()).asIntBuffer();
+			indices.put(mesh.indices).flip();
+			glBindVertexArray(vaoGrassGlbHandle);
+			glBindBuffer(GL_ARRAY_BUFFER, vboGrassGlbHandle);
+			glBufferData(GL_ARRAY_BUFFER, vertices, GL_STATIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, false,
+				GlbGrassMesh.FLOATS_PER_VERTEX * Float.BYTES, 0);
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(1, 3, GL_FLOAT, false,
+				GlbGrassMesh.FLOATS_PER_VERTEX * Float.BYTES, 3L * Float.BYTES);
+			glEnableVertexAttribArray(2);
+			glVertexAttribPointer(2, 2, GL_FLOAT, false,
+				GlbGrassMesh.FLOATS_PER_VERTEX * Float.BYTES, 6L * Float.BYTES);
+			glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+			glEnableVertexAttribArray(4);
+			glVertexAttribPointer(4, 4, GL_FLOAT, false,
+				SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 0);
+			glVertexAttribDivisor(4, 1);
+		glEnableVertexAttribArray(5);
+		glVertexAttribPointer(5, 2, GL_FLOAT, false,
+			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
+		glVertexAttribDivisor(5, 1);
+		glEnableVertexAttribArray(6);
+		glVertexAttribPointer(6, 3, GL_FLOAT, false,
+			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 6L * Float.BYTES);
+		glVertexAttribDivisor(6, 1);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, eboGrassGlbHandle);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_STATIC_DRAW);
+			glBindVertexArray(0);
+			glBindBuffer(GL_ARRAY_BUFFER, 0);
+			log.info("Loaded production grass GLB: {} vertices, {} indices",
+				mesh.vertices.length / GlbGrassMesh.FLOATS_PER_VERTEX, mesh.indices.length);
+			log.info("Grass GLB bounds raw={}..{}, transformed={}..{}, normalized minHeight=0 maxHeight=64 meshHeight=64",
+				java.util.Arrays.toString(mesh.rawMin), java.util.Arrays.toString(mesh.rawMax),
+				java.util.Arrays.toString(mesh.transformedMin),
+				java.util.Arrays.toString(mesh.transformedMax));
+		}
+		catch (IOException | RuntimeException ex)
+		{
+			log.warn("Unable to load production grass GLB; procedural fallback remains active", ex);
+			vaoGrassGlbHandle = 0;
+			grassGlbIndexCount = 0;
+		}
+	}
+
+	private void initGrassDebugVao()
+	{
+		vaoGrassDebugHandle = glGenVertexArrays();
+		vboGrassDebugHandle = glGenBuffers();
+		glBindVertexArray(vaoGrassDebugHandle);
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassDebugHandle);
+		glBufferData(GL_ARRAY_BUFFER, 576L * Float.BYTES, GL_DYNAMIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0);
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
@@ -1805,6 +1966,38 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glDeleteVertexArrays(vaoGrassHandle);
 			vaoGrassHandle = 0;
 		}
+	}
+
+	private void shutdownGrassDebugVao()
+	{
+		if (vboGrassDebugHandle != 0)
+		{
+			glDeleteBuffers(vboGrassDebugHandle);
+			vboGrassDebugHandle = 0;
+		}
+		if (vaoGrassDebugHandle != 0)
+		{
+			glDeleteVertexArrays(vaoGrassDebugHandle);
+			vaoGrassDebugHandle = 0;
+		}
+		if (vboGrassGlbHandle != 0)
+		{
+			glDeleteBuffers(vboGrassGlbHandle);
+			vboGrassGlbHandle = 0;
+		}
+		if (eboGrassGlbHandle != 0)
+		{
+			glDeleteBuffers(eboGrassGlbHandle);
+			eboGrassGlbHandle = 0;
+		}
+		if (vaoGrassGlbHandle != 0)
+		{
+			glDeleteVertexArrays(vaoGrassGlbHandle);
+			vaoGrassGlbHandle = 0;
+		}
+		grassGlbIndexCount = 0;
+		grassGlbNormalizedMin = null;
+		grassGlbNormalizedMax = null;
 	}
 
 	private void initSkyVao()
@@ -3329,76 +3522,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		final int sky =
 				client.getSkyboxColor();
 
-		float fogR;
-		float fogG;
-		float fogB;
-
-		// =====================================================
-		// Custom sky-aware fog
-		// =====================================================
-
-		if (getEnvironmentSkyMode() != SkyMode.OFF
-				&& config.customFog())
-		{
-			switch (getEnvironmentSkyMode())
-			{
-				case DAY:
-					// Pale cool daylight haze
-					fogR = 0.72f;
-					fogG = 0.80f;
-					fogB = 0.84f;
-					break;
-
-				case SUNSET:
-					// Smoky blue/purple-gray
-					fogR = 0.34f;
-					fogG = 0.31f;
-					fogB = 0.38f;
-					break;
-
-				case NIGHT:
-					// Very dark blue atmospheric haze
-					fogR = 0.055f;
-					fogG = 0.070f;
-					fogB = 0.105f;
-					break;
-
-				case COSMIC:
-					// Almost-black violet
-					fogR = 0.030f;
-					fogG = 0.018f;
-					fogB = 0.055f;
-					break;
-
-				default:
-					fogR = 0.5f;
-					fogG = 0.5f;
-					fogB = 0.5f;
-					break;
-			}
-
-			float fogBrightness =
-					config.customFogBrightness() / 100.0f;
-
-			fogR *= fogBrightness;
-			fogG *= fogBrightness;
-			fogB *= fogBrightness;
-
-			fogDepth =
-					config.customFogStrength();
-		}
-		else
-		{
-			// Normal RuneLite fog behavior
-			fogR =
-					(sky >> 16 & 0xFF) / 255f;
-
-			fogG =
-					(sky >> 8 & 0xFF) / 255f;
-
-			fogB =
-					(sky & 0xFF) / 255f;
-		}
+		// Keep only the stock, user-controlled distance fog. The custom
+		// sky-aware haze was removed because it washed out nearby geometry.
+		float fogR = (sky >> 16 & 0xFF) / 255f;
+		float fogG = (sky >> 8 & 0xFF) / 255f;
+		float fogB = (sky & 0xFF) / 255f;
 
 		glUniform1i(
 				uniUseFog,
@@ -3473,6 +3601,18 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform1f(
 			uniMaterialLightingStrength,
 			config.materialLightingStrength() / 100.0f
+		);
+		glUniform1i(
+			uniDirectionalLightingEnabled,
+			config.directionalLighting() ? 1 : 0
+		);
+		glUniform1f(
+			uniDirectionalLightingStrength,
+			config.directionalLightingStrength() / 100.0f
+		);
+		glUniform1f(
+			uniEnvironmentFillStrength,
+			config.environmentFillStrength() / 100.0f
 		);
 		glUniform1i(uniWetSurfacesEnabled, config.wetSurfaces() ? 1 : 0);
 		glUniform1f(
@@ -3817,7 +3957,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			if (config.materialDebugMode() == MaterialDebugMode.OFF)
 			{
 				drawVolumetricLighting();
-				drawStormAtmosphere();
 				drawWeather();
 			}
 			postDrawToplevel();
@@ -3848,6 +3987,52 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 	private void drawSurfaceDetails(Scene scene)
 	{
+		GrassDebugMode debugMode = config.grassDebugMode();
+		if (debugMode != GrassDebugMode.OFF)
+		{
+			if (debugMode == GrassDebugMode.GLB_LINE)
+			{
+				drawGlbGrassLineDebug();
+				return;
+			}
+			if (debugMode == GrassDebugMode.GLB_TERRAIN)
+			{
+				drawGlbGrassTerrainDebug(scene);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GLB_TERRAIN_ALL)
+			{
+				drawGlbGrassAllTerrainDebug(scene);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GLB_SLOPE_TEST)
+			{
+				drawGlbGrassSlopeDebug(scene);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GLB_CLUMP)
+			{
+				drawGlbGrassSimpleDebug(scene, true);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GLB_CLUMP_NO_DEPTH)
+			{
+				drawGlbGrassSimpleDebug(scene, false);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GREEN_TERRAIN)
+			{
+				drawTerrainGrassDebug(scene);
+				return;
+			}
+			if (debugMode == GrassDebugMode.GREEN_INSTANCED_LINE)
+			{
+				drawGrassInstancedDebug();
+				return;
+			}
+			drawGrassDebugQuad();
+			return;
+		}
 		if ((!config.flowingGrass() && !config.terrainDetail())
 			|| glGrassProgram == 0
 			|| vaoGrassHandle == 0
@@ -3879,6 +4064,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		int minimumLevel = Math.max(0, ctx.minLevel);
 		int maximumLevel = Math.min(3, ctx.maxLevel);
 		int instanceCount = 0;
+		int eligibleTiles = 0;
+		int eligibleTriangles = 0;
 		grassInstanceBuffer.clear();
 
 		gather:
@@ -3893,14 +4080,19 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				{
 					continue;
 				}
+				eligibleTiles += zone.surfaceDetailEligibleTiles;
+				eligibleTriangles += zone.surfaceDetailEligibleTriangles;
 
 				float baseX = (zx - offset) << 10;
 				float baseZ = (zz - offset) << 10;
 				float zoneCenterX = baseX + 512.0f;
 				float zoneCenterZ = baseZ + 512.0f;
 				float zoneCullRadius = maximumRadius + 724.0f;
-				float zoneDx = zoneCenterX - atmosphereAnchorX;
-				float zoneDz = zoneCenterZ - atmosphereAnchorZ;
+				// Grass anchors and the world projection use the camera-local coordinate
+				// space. Use the same camera origin for culling; the atmosphere focal
+				// anchor may be in a different (focal/light-map) space.
+				float zoneDx = zoneCenterX - weatherCameraX;
+				float zoneDz = zoneCenterZ - weatherCameraZ;
 				if (zoneDx * zoneDx + zoneDz * zoneDz
 					> zoneCullRadius * zoneCullRadius)
 				{
@@ -3936,8 +4128,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 							continue;
 						}
 
-						float dx = worldX - atmosphereAnchorX;
-						float dz = worldZ - atmosphereAnchorZ;
+						float dx = worldX - weatherCameraX;
+						float dz = worldZ - weatherCameraZ;
 						if (dx * dx + dz * dz > drawRadius * drawRadius)
 						{
 							continue;
@@ -3949,6 +4141,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 						grassInstanceBuffer.put(seed);
 						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
 						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 5]);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
+						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
 						if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
 						{
 							break gather;
@@ -3960,7 +4155,24 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		if (instanceCount == 0)
 		{
+			if (!grassPocStatusLogged && config.flowingGrass())
+			{
+				log.info("Flowing grass placement: eligibleTiles={}, eligibleTriangles={}, instances=0",
+					eligibleTiles, eligibleTriangles);
+				grassPocStatusLogged = true;
+			}
 			return;
+		}
+		if (glGrassDebugProgram != 0)
+		{
+			glDeleteProgram(glGrassDebugProgram);
+			glGrassDebugProgram = 0;
+		}
+		if (!grassPocStatusLogged)
+		{
+			log.info("Flowing grass placement: eligibleTiles={}, eligibleTriangles={}, instances={}",
+				eligibleTiles, eligibleTriangles, instanceCount);
+			grassPocStatusLogged = true;
 		}
 
 		grassInstanceBuffer.flip();
@@ -3970,7 +4182,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				* SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES,
 			GL_STREAM_DRAW);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
-
 		long now = frameEnvironment.timeMillis;
 		if (grassTimeOriginMillis < 0L)
 		{
@@ -4005,11 +4216,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		float[] lightDirection = getActiveSceneLightDirection();
 		boolean grassShadowMapValid = surfaceShadowMapValid
 			&& shadowDepthTexture != 0;
+		if (vaoGrassGlbHandle != 0 && glGrassGlbProgram != 0 && grassGlbIndexCount > 0)
+		{
+			drawGrassGlb(instanceCount, grassRadius, weather, wind,
+				lightDirection, grassShadowMapValid, false, true, 0.0f);
+			return;
+		}
 
 		glUseProgram(glGrassProgram);
 		glUniformMatrix4fv(uniGrassProjection, false, weatherProjection);
 		glUniform3f(uniGrassCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
-		glUniform3f(uniGrassFocus, atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ);
+		glUniform3f(uniGrassFocus, weatherCameraX, weatherCameraY, weatherCameraZ);
 		glUniform2f(uniGrassWorldOffset,
 			scene.getBaseX() * (float) Perspective.LOCAL_TILE_SIZE,
 			scene.getBaseY() * (float) Perspective.LOCAL_TILE_SIZE);
@@ -4069,6 +4286,797 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glActiveTexture(GL_TEXTURE0);
 		restoreSceneRenderState();
+	}
+
+	private void drawGrassGlb(int instanceCount, float grassRadius,
+		WeatherMode weather, float wind, float[] lightDirection,
+		boolean shadowMapValid, boolean debug, boolean instanced,
+		float slopeFollow)
+	{
+		long now = frameEnvironment.timeMillis;
+		glUseProgram(glGrassGlbProgram);
+		glUniformMatrix4fv(uniGrassGlbProjection, false, weatherProjection);
+		glUniform3f(uniGrassGlbCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform3f(uniGrassGlbFocus, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform2f(uniGrassGlbWorldOffset, 0.0f, 0.0f);
+		glUniform1f(uniGrassGlbTime,
+			grassTimeOriginMillis < 0L ? 0.0f
+				: (now - grassTimeOriginMillis) / 1000.0f);
+		glUniform4f(uniGrassGlbDrawRadius, grassRadius, 0.0f, 0.0f, 0.0f);
+		glUniform1f(uniGrassGlbHeightScale, 1.0f);
+		glUniform1f(uniGrassGlbWindStrength, wind);
+		glUniform1f(uniGrassGlbSlopeFollow, slopeFollow);
+		glUniform1i(uniGrassGlbWeatherMode, weather.ordinal());
+		glUniform3f(uniGrassGlbLightDirection,
+			lightDirection[0], lightDirection[1], lightDirection[2]);
+		glUniform1f(uniGrassGlbLightIntensity, 0.55f);
+		glUniform1f(uniGrassGlbAmbientLight, 0.46f);
+		glUniform4f(uniGrassGlbFogColor, currentFogR, currentFogG, currentFogB, 1.0f);
+		glUniform1f(uniGrassGlbNightFactor, frameEnvironment.nightFactor);
+		glUniformMatrix4fv(uniGrassGlbShadowLightProj, false, currentShadowLightProj);
+		glUniform1i(uniGrassGlbShadowsEnabled, shadowMapValid ? 1 : 0);
+		glUniform1f(uniGrassGlbShadowStrength, config.shadowStrength() / 100.0f);
+		glUniform1i(uniGrassGlbMaterialLightingEnabled,
+			config.materialLighting() ? 1 : 0);
+		glUniform1f(uniGrassGlbMaterialLightingStrength,
+			config.materialLightingStrength() / 100.0f);
+		glUniform1i(uniGrassGlbDebugMode, debug ? 1 : 0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+		glUniform1i(uniGrassGlbShadowMap, 5);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassGlbHandle);
+		if (!instanced)
+		{
+			glDrawElements(GL_TRIANGLES, grassGlbIndexCount, GL_UNSIGNED_INT, 0L);
+		}
+		else
+		{
+			glDrawElementsInstanced(GL_TRIANGLES, grassGlbIndexCount,
+				GL_UNSIGNED_INT, 0L, instanceCount);
+		}
+		glBindVertexArray(0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		restoreSceneRenderState();
+	}
+
+	private void drawGlbGrassDebug(Scene scene)
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0 || grassGlbIndexCount == 0)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		if (player == null || player.getLocalLocation() == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		float debugAnchorY = Perspective.getTileHeight(client, local, client.getPlane());
+		grassInstanceBuffer.clear();
+		// Stage A is deliberately independent of terrain filtering: place one
+		// complete clump beside the player on the current tile.
+		grassInstanceBuffer.put(local.getX() + 128.0f);
+		grassInstanceBuffer.put(debugAnchorY);
+		grassInstanceBuffer.put(local.getY());
+		grassInstanceBuffer.put(0.5f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(-1.0f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		float[] lightDirection = getActiveSceneLightDirection();
+		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
+			lightDirection, false, true, false, 0.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass Stage A final world height: min={} max={} (anchor={}, rootOffset=0.8)",
+				debugAnchorY + 0.8f - 64.0f, debugAnchorY + 0.8f,
+				debugAnchorY);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawGlbGrassLineDebug()
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0
+			|| grassGlbIndexCount == 0 || vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		if (player == null || player.getLocalLocation() == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		float anchorY = Perspective.getTileHeight(client, local, client.getPlane());
+		final int instances = 10;
+		grassInstanceBuffer.clear();
+		for (int i = 0; i < instances; i++)
+		{
+			// Fixed scene-space line for an unambiguous instancing proof. The GLB
+			// shader's debug mode disables yaw, scale variation and wind.
+			grassInstanceBuffer.put(local.getX() + 128.0f + i * 96.0f);
+			grassInstanceBuffer.put(anchorY);
+			grassInstanceBuffer.put(local.getY());
+			grassInstanceBuffer.put(0.5f + i * 0.01f);
+			grassInstanceBuffer.put(0.0f);
+			grassInstanceBuffer.put(0.0f);
+			grassInstanceBuffer.put(0.0f);
+			grassInstanceBuffer.put(-1.0f);
+			grassInstanceBuffer.put(0.0f);
+		}
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		drawGrassGlb(instances, 100000.0f, config.weatherMode(), 0.0f,
+			getActiveSceneLightDirection(), false, true, true, 0.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass Stage B: vertices={}, instances=10",
+				grassGlbIndexCount, instances);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawGlbGrassTerrainDebug(Scene scene)
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0
+			|| grassGlbIndexCount == 0 || vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+		SceneContext ctx = context(scene);
+		Player player = client.getLocalPlayer();
+		if (ctx == null || player == null || player.getLocalLocation() == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		float bestDistance = Float.POSITIVE_INFINITY;
+		float bestX = 0.0f;
+		float bestY = 0.0f;
+		float bestZ = 0.0f;
+		float bestNx = 0.0f;
+		float bestNy = -1.0f;
+		float bestNz = 0.0f;
+		int offset = SCENE_OFFSET >> 3;
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized
+					|| zone.surfaceDetailVisibleFrame != grassVisibilityFrame)
+				{
+					continue;
+				}
+				int end = Math.min(zone.surfaceDetailLevelOffsets[0],
+					zone.surfaceDetailAnchors.length);
+				float baseX = (zx - offset) << 10;
+				float baseZ = (zz - offset) << 10;
+				for (int anchor = 0; anchor + 5 < end;
+					anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
+				{
+					if (Math.round(zone.surfaceDetailAnchors[anchor + 5]) != 0)
+					{
+						continue;
+					}
+					float x = baseX + zone.surfaceDetailAnchors[anchor];
+					float z = baseZ + zone.surfaceDetailAnchors[anchor + 2];
+					float dx = x - local.getX();
+					float dz = z - local.getY();
+					float distance = dx * dx + dz * dz;
+					if (distance < bestDistance)
+					{
+						bestDistance = distance;
+						bestX = x;
+						bestY = zone.surfaceDetailAnchors[anchor + 1];
+						bestZ = z;
+						bestNx = zone.surfaceDetailAnchors[anchor + 6];
+						bestNy = zone.surfaceDetailAnchors[anchor + 7];
+						bestNz = zone.surfaceDetailAnchors[anchor + 8];
+					}
+				}
+			}
+		}
+		if (!Float.isFinite(bestDistance))
+		{
+			return;
+		}
+		grassInstanceBuffer.clear();
+		grassInstanceBuffer.put(bestX);
+		grassInstanceBuffer.put(bestY);
+		grassInstanceBuffer.put(bestZ);
+		grassInstanceBuffer.put(0.5f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(bestNx);
+		grassInstanceBuffer.put(bestNy);
+		grassInstanceBuffer.put(bestNz);
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
+			getActiveSceneLightDirection(), false, true, true, 0.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass Stage C: one terrain anchor at ({}, {}, {})",
+				bestX, bestY, bestZ);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawGlbGrassAllTerrainDebug(Scene scene)
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0
+			|| grassGlbIndexCount == 0 || vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+		SceneContext ctx = context(scene);
+		if (ctx == null)
+		{
+			return;
+		}
+		int offset = SCENE_OFFSET >> 3;
+		int instanceCount = 0;
+		grassInstanceBuffer.clear();
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				// Stage D is a placement diagnostic, so do not depend on the
+				// per-frame opaque-draw visibility mark. Roof/visibility traversal
+				// can legitimately skip a zone before this debug pass runs.
+				if (!zone.initialized)
+				{
+					continue;
+				}
+				int end = Math.min(zone.surfaceDetailLevelOffsets[0],
+					zone.surfaceDetailAnchors.length);
+				float baseX = (zx - offset) << 10;
+				float baseZ = (zz - offset) << 10;
+				for (int anchor = 0; anchor + 5 < end;
+					anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
+				{
+					if (Math.round(zone.surfaceDetailAnchors[anchor + 5]) != 0)
+					{
+						continue;
+					}
+					grassInstanceBuffer.put(baseX + zone.surfaceDetailAnchors[anchor]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 1]);
+					grassInstanceBuffer.put(baseZ + zone.surfaceDetailAnchors[anchor + 2]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 3]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
+					grassInstanceBuffer.put(0.0f);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
+					if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+					{
+						break;
+					}
+				}
+				if (instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+				{
+					break;
+				}
+			}
+			if (instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+			{
+				break;
+			}
+		}
+		if (instanceCount == 0)
+		{
+			return;
+		}
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		drawGrassGlb(instanceCount, 100000.0f, config.weatherMode(), 0.0f,
+			getActiveSceneLightDirection(), false, true, true, 0.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass Stage D: eligible terrain instances={}", instanceCount);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	/** Test 1: the imported mesh through the same minimal debug path as the
+	 * proven magenta geometry. This deliberately bypasses the vegetation shader,
+	 * instancing, terrain filtering, wind, and random transforms. */
+	private void drawGlbGrassSimpleDebug(Scene scene, boolean depthTest)
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbDebugProgram == 0
+			|| grassGlbIndexCount == 0)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		if (player == null || player.getLocalLocation() == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		float baseX = local.getX() + 128.0f;
+		float baseZ = local.getY();
+		// Sample the exact position where the debug clump is drawn. Sampling the
+		// player's tile while drawing one tile away can bury the mesh on a slope.
+		LocalPoint debugPoint = new LocalPoint((int) baseX, (int) baseZ);
+		float anchorY = Perspective.getTileHeight(client, debugPoint, client.getPlane());
+		glUseProgram(glGrassGlbDebugProgram);
+		glUniformMatrix4fv(uniGrassGlbDebugProjection, false, weatherProjection);
+		glUniform3f(uniGrassGlbDebugBaseCenter, baseX, anchorY, baseZ);
+		glUniform1f(uniGrassGlbDebugScale, 1.0f);
+		glUniform3f(uniGrassGlbDebugColor, 1.0f, 0.08f, 0.85f);
+		if (depthTest)
+		{
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_GREATER);
+			glDepthMask(true);
+		}
+		else
+		{
+			glDisable(GL_DEPTH_TEST);
+			glDepthMask(false);
+		}
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassGlbHandle);
+		glDrawElements(GL_TRIANGLES, grassGlbIndexCount, GL_UNSIGNED_INT, 0L);
+		glBindVertexArray(0);
+		restoreSceneRenderState();
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass {}: mesh={}, anchor=({}, {}, {}), scale=1, depth={}, cull=off",
+				depthTest ? "Test 1" : "Test 2", grassGlbIndexCount,
+				baseX, anchorY, baseZ, depthTest ? "on" : "off");
+			grassDebugDrawLogged = true;
+		}
+		if (!grassGlbBoundsLogged && grassGlbNormalizedMin != null
+			&& grassGlbNormalizedMax != null)
+		{
+			float[] axisMin = {grassGlbNormalizedMin[0], -grassGlbNormalizedMax[1],
+				grassGlbNormalizedMin[2]};
+			float[] axisMax = {grassGlbNormalizedMax[0], -grassGlbNormalizedMin[1],
+				grassGlbNormalizedMax[2]};
+			float[] worldMin = {baseX + axisMin[0], anchorY + axisMin[1],
+				baseZ + axisMin[2]};
+			float[] worldMax = {baseX + axisMax[0], anchorY + axisMax[1],
+				baseZ + axisMax[2]};
+			log.info("GLB grass bounds normalized={}..{}, axisConverted={}..{}, "
+				+ "modelScale=1, finalWorld={}..{}, terrainHeight={}",
+				java.util.Arrays.toString(grassGlbNormalizedMin),
+				java.util.Arrays.toString(grassGlbNormalizedMax),
+				java.util.Arrays.toString(axisMin), java.util.Arrays.toString(axisMax),
+				java.util.Arrays.toString(worldMin), java.util.Arrays.toString(worldMax),
+				anchorY);
+			grassGlbBoundsLogged = true;
+		}
+	}
+
+	private void drawGlbGrassSlopeDebug(Scene scene)
+	{
+		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0
+			|| grassGlbIndexCount == 0 || vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+		SceneContext ctx = context(scene);
+		if (ctx == null)
+		{
+			return;
+		}
+		int offset = SCENE_OFFSET >> 3;
+		float bestSlope = -1.0f;
+		float bestX = 0.0f;
+		float bestY = 0.0f;
+		float bestZ = 0.0f;
+		float bestNx = 0.0f;
+		float bestNy = -1.0f;
+		float bestNz = 0.0f;
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized
+					|| zone.surfaceDetailVisibleFrame != grassVisibilityFrame)
+				{
+					continue;
+				}
+				int end = Math.min(zone.surfaceDetailLevelOffsets[0],
+					zone.surfaceDetailAnchors.length);
+				float baseX = (zx - offset) << 10;
+				float baseZ = (zz - offset) << 10;
+				for (int anchor = 0; anchor + 8 < end;
+					anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
+				{
+					if (Math.round(zone.surfaceDetailAnchors[anchor + 5]) != 0)
+					{
+						continue;
+					}
+					float nx = zone.surfaceDetailAnchors[anchor + 6];
+					float nz = zone.surfaceDetailAnchors[anchor + 8];
+					float slope = nx * nx + nz * nz;
+					if (slope > bestSlope)
+					{
+						bestSlope = slope;
+						bestX = baseX + zone.surfaceDetailAnchors[anchor];
+						bestY = zone.surfaceDetailAnchors[anchor + 1];
+						bestZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
+						bestNx = nx;
+						bestNy = zone.surfaceDetailAnchors[anchor + 7];
+						bestNz = nz;
+					}
+				}
+			}
+		}
+		if (bestSlope < 0.0f)
+		{
+			return;
+		}
+		grassInstanceBuffer.clear();
+		grassInstanceBuffer.put(bestX);
+		grassInstanceBuffer.put(bestY);
+		grassInstanceBuffer.put(bestZ);
+		grassInstanceBuffer.put(0.5f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(0.0f);
+		grassInstanceBuffer.put(bestNx);
+		grassInstanceBuffer.put(bestNy);
+		grassInstanceBuffer.put(bestNz);
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
+			getActiveSceneLightDirection(), false, true, true,
+			config.grassSlopeFollow() / 100.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("GLB grass slope test: anchor=({}, {}, {}), normal=({}, {}, {}), follow={}",
+				bestX, bestY, bestZ, bestNx, bestNy, bestNz,
+				config.grassSlopeFollow() / 100.0f);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawGrassDebugQuad()
+	{
+		if (glGrassDebugProgram == 0 || vaoGrassDebugHandle == 0
+			|| vboGrassDebugHandle == 0)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		if (player == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		if (local == null)
+		{
+			return;
+		}
+		float px = local.getX();
+		float pz = local.getY();
+		float dx = weatherCameraX - px;
+		float dz = weatherCameraZ - pz;
+		float length = (float) Math.sqrt(dx * dx + dz * dz);
+		if (length < 0.001f)
+		{
+			dx = 0.0f;
+			dz = 1.0f;
+			length = 1.0f;
+		}
+		dx /= length;
+		dz /= length;
+		float rightUnitX = -dz;
+		float rightUnitZ = dx;
+		float rightX = rightUnitX * 64.0f;
+		float rightZ = rightUnitZ * 64.0f;
+		// Place the marker clearly beside, rather than directly in front of, the
+		// player. The offset is still player-relative and remains deterministic.
+		float centerX = px + rightUnitX * 256.0f;
+		float centerZ = pz + rightUnitZ * 256.0f;
+		float bottomY = Perspective.getTileHeight(client, local, client.getPlane());
+		float topY = bottomY - 256.0f;
+		grassDebugBuffer.clear();
+		int vertexCount;
+		if (config.grassDebugMode() == GrassDebugMode.GREEN_CLUMP)
+		{
+			vertexCount = putDebugClump(centerX, centerZ, bottomY);
+		}
+		else if (config.grassDebugMode() == GrassDebugMode.GREEN_BLADE)
+		{
+			vertexCount = putDebugBlade(centerX, centerZ, bottomY,
+				rightX, rightZ);
+		}
+		else
+		{
+			putDebugVertex(centerX - rightX, bottomY, centerZ - rightZ);
+			putDebugVertex(centerX + rightX, bottomY, centerZ + rightZ);
+			putDebugVertex(centerX + rightX, topY, centerZ + rightZ);
+			putDebugVertex(centerX - rightX, bottomY, centerZ - rightZ);
+			putDebugVertex(centerX + rightX, topY, centerZ + rightZ);
+			putDebugVertex(centerX - rightX, topY, centerZ - rightZ);
+			vertexCount = 6;
+		}
+		grassDebugBuffer.flip();
+		glUseProgram(glGrassDebugProgram);
+		glUniformMatrix4fv(uniGrassDebugProjection, false, weatherProjection);
+		glUniform3f(uniGrassDebugBaseCenter, 0.0f, 0.0f, 0.0f);
+		glUniform1f(uniGrassDebugInstanceSpacing, 0.0f);
+		if (config.grassDebugMode() == GrassDebugMode.GREEN_CLUMP
+			|| config.grassDebugMode() == GrassDebugMode.GREEN_BLADE)
+		{
+			glUniform3f(uniGrassDebugColor, 0.08f, 1.0f, 0.12f);
+		}
+		else
+		{
+			glUniform3f(uniGrassDebugColor, 1.0f, 0.0f, 1.0f);
+		}
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassDebugHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassDebugBuffer);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassDebugHandle);
+		glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		restoreSceneRenderState();
+		if (!grassDebugDrawLogged)
+		{
+			log.info("Grass debug draw: mode={}, vertices={}, instances=1, playerScene=({}, {}, {})",
+				config.grassDebugMode(), vertexCount, (int) px, (int) bottomY, (int) pz);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawGrassInstancedDebug()
+	{
+		if (glGrassDebugProgram == 0 || vaoGrassDebugHandle == 0
+			|| vboGrassDebugHandle == 0)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		if (player == null || player.getLocalLocation() == null)
+		{
+			return;
+		}
+		LocalPoint local = player.getLocalLocation();
+		float px = local.getX();
+		float pz = local.getY();
+		float dx = weatherCameraX - px;
+		float dz = weatherCameraZ - pz;
+		float length = (float) Math.sqrt(dx * dx + dz * dz);
+		if (length < 0.001f)
+		{
+			dx = 0.0f;
+			dz = 1.0f;
+			length = 1.0f;
+		}
+		dx /= length;
+		dz /= length;
+		float centerX = px - dz * 256.0f;
+		float centerZ = pz + dx * 256.0f;
+		float bottomY = Perspective.getTileHeight(client, local, client.getPlane());
+		grassDebugBuffer.clear();
+		putDebugBlade(0.0f, 0.0f, 0.0f, 64.0f, 0.0f);
+		grassDebugBuffer.flip();
+		glUseProgram(glGrassDebugProgram);
+		glUniformMatrix4fv(uniGrassDebugProjection, false, weatherProjection);
+		glUniform3f(uniGrassDebugBaseCenter, centerX, bottomY, centerZ);
+		glUniform1f(uniGrassDebugInstanceSpacing, 96.0f);
+		glUniform3f(uniGrassDebugColor, 0.08f, 1.0f, 0.12f);
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassDebugHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassDebugBuffer);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassDebugHandle);
+		glDrawArraysInstanced(GL_TRIANGLES, 0, 24, 10);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		restoreSceneRenderState();
+		if (!grassDebugDrawLogged)
+		{
+			log.info("Grass debug draw: mode={}, vertices=24, instances=10, playerScene=({}, {}, {})",
+				config.grassDebugMode(), (int) px, (int) bottomY, (int) pz);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	private void drawTerrainGrassDebug(Scene scene)
+	{
+		// Reuse the normal instanced terrain path, but bypass density/radius LOD and
+		// select only the exact grass material anchors generated by SceneUploader.
+		if (!config.flowingGrass())
+		{
+			return;
+		}
+		if (glGrassProgram == 0 || vaoGrassHandle == 0 || vboGrassInstanceHandle == 0)
+		{
+			return;
+		}
+		SceneContext ctx = context(scene);
+		if (ctx == null)
+		{
+			return;
+		}
+		int offset = SCENE_OFFSET >> 3;
+		int instanceCount = 0;
+		grassInstanceBuffer.clear();
+		gatherTerrainDebug:
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				if (instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+				{
+					break gatherTerrainDebug;
+				}
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized
+					|| zone.surfaceDetailVisibleFrame != grassVisibilityFrame)
+				{
+					continue;
+				}
+				float baseX = (zx - offset) << 10;
+				float baseZ = (zz - offset) << 10;
+				int end = Math.min(zone.surfaceDetailLevelOffsets[0],
+					zone.surfaceDetailAnchors.length);
+				for (int anchor = 0; anchor + 5 < end;
+					anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
+				{
+					if (Math.round(zone.surfaceDetailAnchors[anchor + 5]) != 0)
+					{
+						continue;
+					}
+					grassInstanceBuffer.put(baseX + zone.surfaceDetailAnchors[anchor]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 1]);
+					grassInstanceBuffer.put(baseZ + zone.surfaceDetailAnchors[anchor + 2]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 3]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
+					grassInstanceBuffer.put(0.0f);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
+					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
+					if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
+					{
+						break gatherTerrainDebug;
+					}
+				}
+			}
+		}
+		if (instanceCount == 0)
+		{
+			log.info("Grass terrain debug gathered no mapped grass-underlay anchors");
+			return;
+		}
+		grassInstanceBuffer.flip();
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		glUseProgram(glGrassProgram);
+		glUniformMatrix4fv(uniGrassProjection, false, weatherProjection);
+		glUniform3f(uniGrassCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform3f(uniGrassFocus, weatherCameraX, weatherCameraY, weatherCameraZ);
+		glUniform2f(uniGrassWorldOffset, 0.0f, 0.0f);
+		glUniform1f(uniGrassTime, 0.0f);
+		glUniform4f(uniGrassDrawRadius, 100000.0f, 100000.0f, 100000.0f, 100000.0f);
+		glUniform1f(uniGrassHeightScale, 1.0f);
+		glUniform1f(uniGrassWindStrength, 0.0f);
+		glUniform1i(uniGrassWeatherModeVert, 0);
+		glUniform3f(uniGrassLightDirection, 0.0f, -1.0f, 0.0f);
+		glUniform1f(uniGrassLightIntensity, 1.0f);
+		glUniform1f(uniGrassAmbientLight, 1.0f);
+		glUniform1f(uniGrassLightningFlash, 0.0f);
+		glUniform1i(uniGrassWeatherModeFrag, 0);
+		glUniform1f(uniGrassNightFactor, 0.0f);
+		glUniform1f(uniGrassBrightness, 1.0f);
+		glUniform1i(uniGrassEnhancedColors, 0);
+		glUniform1f(uniGrassSaturation, 1.0f);
+		glUniform1f(uniGrassContrast, 1.0f);
+		glUniform4f(uniGrassFogColor, 0.0f, 0.0f, 0.0f, 1.0f);
+		glUniform1i(uniGrassShadowsEnabled, 0);
+		glUniform1i(uniGrassMaterialDebugMode, 0);
+		glUniform1i(uniGrassMaterialLightingEnabled, 0);
+		glUniform1f(uniGrassMaterialLightingStrength, 0.0f);
+		glUniform1i(uniGrassWetSurfacesEnabled, 0);
+		glUniform1f(uniGrassWetSurfaceStrength, 0.0f);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassHandle);
+		glDrawArraysInstanced(GL_TRIANGLES, 0, SURFACE_DETAIL_VERTICES_PER_INSTANCE,
+			instanceCount);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		restoreSceneRenderState();
+		log.info("Grass terrain debug draw: vertices={}, instances={}",
+			SURFACE_DETAIL_VERTICES_PER_INSTANCE, instanceCount);
+	}
+
+	private void putDebugVertex(float x, float y, float z)
+	{
+		grassDebugBuffer.put(x).put(y).put(z);
+	}
+
+	private int putDebugBlade(float centerX, float centerZ, float bottomY,
+		float rightX, float rightZ)
+	{
+		return putDebugBlade(centerX, centerZ, bottomY, rightX, rightZ,
+			1.0f, 1.0f);
+	}
+
+	private int putDebugBlade(float centerX, float centerZ, float bottomY,
+		float rightX, float rightZ, float heightScale, float widthScale)
+	{
+		float[] heights = {bottomY + 2.0f, bottomY - 64.0f,
+			bottomY - 128.0f, bottomY - 190.0f, bottomY - 230.0f};
+		float[] halfWidths = {24.0f, 20.0f, 14.0f, 6.0f, 0.0f};
+		for (int i = 0; i < heights.length; ++i)
+		{
+			heights[i] = bottomY + (heights[i] - bottomY) * heightScale;
+			halfWidths[i] *= widthScale;
+		}
+		int vertices = 0;
+		for (int section = 0; section < 4; ++section)
+		{
+			float leftX = centerX - rightX * halfWidths[section] / 64.0f;
+			float leftZ = centerZ - rightZ * halfWidths[section] / 64.0f;
+			float rightPosX = centerX + rightX * halfWidths[section] / 64.0f;
+			float rightPosZ = centerZ + rightZ * halfWidths[section] / 64.0f;
+			float nextLeftX = centerX - rightX * halfWidths[section + 1] / 64.0f;
+			float nextLeftZ = centerZ - rightZ * halfWidths[section + 1] / 64.0f;
+			float nextRightX = centerX + rightX * halfWidths[section + 1] / 64.0f;
+			float nextRightZ = centerZ + rightZ * halfWidths[section + 1] / 64.0f;
+			putDebugVertex(leftX, heights[section], leftZ);
+			putDebugVertex(rightPosX, heights[section], rightPosZ);
+			putDebugVertex(nextRightX, heights[section + 1], nextRightZ);
+			putDebugVertex(leftX, heights[section], leftZ);
+			putDebugVertex(nextRightX, heights[section + 1], nextRightZ);
+			putDebugVertex(nextLeftX, heights[section + 1], nextLeftZ);
+			vertices += 6;
+		}
+		return vertices;
+	}
+
+	private int putDebugClump(float centerX, float centerZ, float bottomY)
+	{
+		int vertices = 0;
+		for (int blade = 0; blade < 8; ++blade)
+		{
+			float angle = (float) (blade * Math.PI * 2.0 / 8.0);
+			float heightScale = 0.88f + (blade % 4) * 0.06f;
+			float widthScale = 0.82f + (blade % 3) * 0.08f;
+			vertices += putDebugBlade(centerX, centerZ, bottomY,
+				(float) Math.cos(angle) * 64.0f,
+				(float) Math.sin(angle) * 64.0f,
+				heightScale, widthScale);
+		}
+		return vertices;
 	}
 
 	private boolean advancedWaterEnabled(Scene scene)
@@ -4214,53 +5222,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glActiveTexture(GL_TEXTURE3);
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glActiveTexture(GL_TEXTURE0);
-		restoreSceneRenderState();
-	}
-
-	private void drawStormAtmosphere()
-	{
-		WeatherMode mode = config.weatherMode();
-		boolean blizzard = mode == WeatherMode.BLIZZARD;
-		if ((mode != WeatherMode.STORM && !blizzard)
-			|| glAtmosphereProgram == 0
-			|| config.stormAtmosphereDensity() == 0)
-		{
-			return;
-		}
-
-		float density = config.stormAtmosphereDensity() / 100.0f;
-		int puffs = Ints.constrainToRange(
-			Math.round((blizzard ? 150.0f : 96.0f) * density),
-			1,
-			blizzard ? 256 : 192);
-		long now = frameEnvironment.timeMillis;
-
-		glUseProgram(glAtmosphereProgram);
-		glUniformMatrix4fv(uniAtmosphereProjection, false, weatherProjection);
-		glUniform3f(uniAtmosphereCamera, weatherCameraX, weatherCameraY, weatherCameraZ);
-		glUniform3f(uniAtmosphereAnchor, atmosphereAnchorX, atmosphereAnchorY, atmosphereAnchorZ);
-		glUniform1f(uniAtmosphereTime, (now % 600_000L) / 1000.0f);
-		glUniform1f(uniAtmosphereRadius, blizzard ? 2500.0f : 2250.0f);
-		glUniform1f(uniAtmosphereWind,
-			config.weatherWind() * (blizzard ? 2.8f : 1.0f));
-		glUniform1f(uniAtmosphereDensity, density);
-		glUniform1i(uniAtmosphereBlizzard, blizzard ? 1 : 0);
-		glUniform1f(uniAtmosphereLightning,
-			mode == WeatherMode.STORM ? getLightningFlash(now) : 0.0f);
-		float[] lightDirection = getActiveLightDirection();
-		glUniform3f(uniAtmosphereLightDirection,
-			lightDirection[0], lightDirection[1], lightDirection[2]);
-		glUniform1f(uniAtmosphereNightFactor, frameEnvironment.nightFactor);
-
-		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(GL_GREATER);
-		glDepthMask(false);
-		glDisable(GL_CULL_FACE);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-		glBindVertexArray(vaoSkyHandle);
-		glDrawArrays(GL_TRIANGLES, 0, puffs * 6);
-
 		restoreSceneRenderState();
 	}
 

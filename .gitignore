@@ -37,3 +37,12 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+# GpuHD authoring intermediates; source/final PNGs and master catalog are tracked.
+gpu-source-export/
+**/gpuhd-object-dumps/
+**/gpuhd-terrain-dumps/
+**/hd-textures/**/*.preview.png
+**/hd-textures/**/tmp/
+**/materials/imported/manifest.csv
+/data/*.tmp

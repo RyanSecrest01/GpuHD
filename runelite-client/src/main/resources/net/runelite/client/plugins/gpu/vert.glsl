@@ -149,7 +149,7 @@ void main()
     fTileUv = fUv;
     fShoreEdges = tex.w;
 
-    if (fTextureId > 0)
+    if (fTextureId > 0 && fTextureId <= TEXTURE_COUNT)
     {
         vec2 textureAnim =
             textureAnimations[
@@ -167,7 +167,7 @@ void main()
         fHsl =
             float(abhsl & 0xffff);
     }
-    else
+    else if (fTextureId == 0)
     {
         fHsl =
             float(
@@ -175,6 +175,10 @@ void main()
                 | ((int(hsl[1]) & 7) << 7)
                 | (int(hsl[2]) & 127)
             );
+    }
+    else
+    {
+        fHsl = float(abhsl & 0xffff);
     }
 
     float fogWest =

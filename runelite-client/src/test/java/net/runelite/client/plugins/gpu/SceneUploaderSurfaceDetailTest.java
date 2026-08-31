@@ -43,7 +43,7 @@ public class SceneUploaderSurfaceDetailTest
 	}
 
 	@Test
-	public void candidateCountsStayInsideTheTwentyAnchorTileBudget()
+	public void candidateCountsStayInsideThePerTileAnchorBudget()
 	{
 		int minimumGrass = Integer.MAX_VALUE;
 		int maximumGrass = Integer.MIN_VALUE;
@@ -65,11 +65,11 @@ public class SceneUploaderSurfaceDetailTest
 				maximumGrass = Math.max(maximumGrass, grass);
 				minimumStone = Math.min(minimumStone, stone);
 				maximumStone = Math.max(maximumStone, stone);
-				assertTrue(grass + stone + sand + dirt <= 20);
+				assertTrue(grass + stone + sand + dirt <= 64);
 			}
 		}
-		assertEquals(9, minimumGrass);
-		assertEquals(11, maximumGrass);
+		assertEquals(36, minimumGrass);
+		assertEquals(48, maximumGrass);
 		assertEquals(4, minimumStone);
 		assertEquals(5, maximumStone);
 		assertEquals(2, SceneUploader.surfaceAnchorCount(
@@ -193,12 +193,16 @@ public class SceneUploaderSurfaceDetailTest
 		int dirt = SurfaceMaterial.DIRT.getDetailType();
 
 		assertEquals(grass, SceneUploader.eligibleSurfaceDetailType(
-			SurfaceMaterial.GRASS, -1, 0, 7, -1));
+			SurfaceMaterial.GRASS, -1, 0, 46, -1));
 		assertEquals(grass, SceneUploader.eligibleSurfaceDetailType(
+			SurfaceMaterial.GRASS, -1, 0, 64, -1));
+		assertEquals(-1, SceneUploader.eligibleSurfaceDetailType(
+			SurfaceMaterial.GRASS, -1, 0, 45, -1));
+		assertEquals(-1, SceneUploader.eligibleSurfaceDetailType(
 			SurfaceMaterial.GRASS, -1, 1, 7, 29));
-		assertEquals(grass, SceneUploader.eligibleSurfaceDetailType(
+		assertEquals(-1, SceneUploader.eligibleSurfaceDetailType(
 			SurfaceMaterial.GRASS, 129, 1, 7, 10));
-		assertEquals(grass, SceneUploader.eligibleSurfaceDetailType(
+		assertEquals(-1, SceneUploader.eligibleSurfaceDetailType(
 			SurfaceMaterial.GRASS, 129, -1, -1, -1));
 		assertEquals(-1, SceneUploader.eligibleSurfaceDetailType(
 			SurfaceMaterial.GRASS, 129, 1, 7, 13));

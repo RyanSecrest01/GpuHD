@@ -246,10 +246,11 @@ void main()
 	float sunFacing = smoothstep(0.574, 0.906, alignment);
 	float moonFacing = smoothstep(0.788, 0.951, alignment);
 	float portalFacing = smoothstep(0.08, 0.35, alignment);
-	if (viewDirection.y >= 0.60
+	bool shaftEligible = !(viewDirection.y >= 0.60
 		|| (moonBlend >= 0.5 && moonFacing <= 0.0001)
 		|| (moonBlend < 0.5
-			&& max(sunFacing, portalFacing) <= 0.0001))
+			&& max(sunFacing, portalFacing) <= 0.0001));
+	if (!shaftEligible)
 	{
 		FragColor = vec4(0.0, 0.0, 0.0, reversedDepth);
 		return;
@@ -276,8 +277,14 @@ void main()
 
 	float coverage;
 	float portalEvidence;
-	vec2 integrals = integrateShafts(
-		viewDirection, marchEnd, moonBlend, coverage, portalEvidence);
+	vec2 integrals = vec2(0.0);
+	coverage = 0.0;
+	portalEvidence = 0.0;
+	if (strength > 0.001 && shadowMapValid != 0 && shaftEligible)
+	{
+		integrals = integrateShafts(
+			viewDirection, marchEnd, moonBlend, coverage, portalEvidence);
+	}
 	// The directional blocker volume is finite. Fade its edge instead of
 	// normalizing one surviving sample into a hard fan at the horizon.
 	float coverageFade = smoothstep(0.10, 0.38, coverage);

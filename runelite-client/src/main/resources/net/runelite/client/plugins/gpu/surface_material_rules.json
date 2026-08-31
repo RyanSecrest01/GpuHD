@@ -1,6 +1,13 @@
 {
   "version": 1,
   "terrainRules": [
+	{
+	  "name": "lumbridge-grass-poc",
+	  "material": "GRASS",
+	  "authoredVariant": 2,
+	  "layer": "UNDERLAY",
+	  "ids": [46, 47, 48, 49, 50, 59, 60, 61, 62, 63, 64]
+	},
     {
       "name": "carpet-overlay-veto",
       "material": "UNKNOWN",
@@ -23,14 +30,7 @@
       "ids": [25, 26, 76]
     }
   ],
-  "objectRules": [
-    {
-      "name": "lumbridge-castle-wall",
-      "material": "STONE",
-      "authoredSlot": 1,
-      "objectIds": [16519, 20084, 1911, 1913]
-    }
-  ],
+  "objectRules": [],
   "textureRules": [
     {
       "name": "live-cache-water",

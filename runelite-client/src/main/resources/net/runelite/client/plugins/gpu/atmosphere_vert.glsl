@@ -77,7 +77,7 @@ void main()
 	}
 	vec3 up = normalize(cross(forward, right));
 
-	float halfWidth = mix(105.0, 235.0, hash(id + 131.0))
+	float halfWidth = mix(130.0, 280.0, hash(id + 131.0))
 		* (blizzard != 0 ? 1.34 : 1.0);
 	float halfHeight = halfWidth * mix(0.30, 0.56, hash(id + 149.0))
 		* (blizzard != 0 ? 0.68 : 1.0);
@@ -90,10 +90,14 @@ void main()
 	fUv = corner * 0.5 + 0.5;
 	fSeed = seed;
 
-	float nearFade = smoothstep(190.0, 520.0, cameraDistance);
+	// Leave a clear bubble around the player; the volume thickens just beyond
+	// it and is intended to hide the distant ground/horizon, not coat the camera.
+	float nearFade = blizzard != 0
+		? smoothstep(560.0, 900.0, cameraDistance)
+		: smoothstep(760.0, 1120.0, cameraDistance);
 	float farFade = 1.0 - smoothstep(radius * 0.62, radius, length(offset));
 	float layerVariation = mix(0.48, 1.0, hash(id + 173.0));
-	float baseOpacity = blizzard != 0 ? 0.034 : 0.030;
+	float baseOpacity = blizzard != 0 ? 0.052 : 0.046;
 	fOpacity = baseOpacity * nearFade * farFade * layerVariation
 		* sqrt(clamp(density, 0.0, 2.0));
 	float lightAlignment = max(dot(normalize(-lightDirection), forward), 0.0);

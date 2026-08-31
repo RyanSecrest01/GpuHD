@@ -28,6 +28,9 @@ uniform float terrainBlendStrength;
 uniform int materialDebugMode;
 uniform int materialLightingEnabled;
 uniform float materialLightingStrength;
+uniform int directionalLightingEnabled;
+uniform float directionalLightingStrength;
+uniform float environmentFillStrength;
 uniform int wetSurfacesEnabled;
 uniform float wetSurfaceStrength;
 
@@ -80,6 +83,10 @@ in float fDepth;
 #endif
 
 out vec4 FragColor;
+
+// tex.w bits 0..7 are shoreline edges on terrain; bit 7 is safely reused
+// only for non-terrain authored object faces.
+const int AUTHORED_PLANAR_UV_FLAG = 128;
 
 #include "hsl_to_rgb.glsl"
 
@@ -488,8 +495,17 @@ void main()
         int textureIdx = fTextureId - 1;
         waterSurface = isWaterTexture(textureIdx);
         swampWater = textureIdx == 25;
+        // Synthetic authored assets are assigned layers after the 256 vanilla
+        // texture layers. Preserve their authored albedo brightness instead
+        // of multiplying it by the source tile/object's usually-dark HSL
+        // vertex color. Shadows and all other lighting remain applied below.
+        bool authoredSyntheticTexture = fTextureId > 256;
 
-        vec2 sampleUv = fUv;
+        // Repeat only explicitly planar exact-object UVs. Vanilla object and
+        // all terrain UVs remain on their original sampling path.
+        bool planarAuthoredUv = !terrainSurface
+            && (fShoreEdges & AUTHORED_PLANAR_UV_FLAG) != 0;
+        vec2 sampleUv = planarAuthoredUv ? fract(fUv) : fUv;
         if (enhancedWater != 0 && waterSurface)
         {
             float time = float(tick) * 0.0125;
@@ -589,8 +605,10 @@ void main()
             fHsl / 127.f;
 
         vec3 mul =
-            (1.f - textureLightMode) * vec3(light)
-            + textureLightMode * fColor.rgb;
+            authoredSyntheticTexture
+                ? vec3(1.0)
+                : (1.f - textureLightMode) * vec3(light)
+                    + textureLightMode * fColor.rgb;
 
         c =
             textureColor *
@@ -630,55 +648,8 @@ void main()
     c.rgb = colorblind(c.rgb);
 #endif
 
-	// ====================================================
-	// FIRST AUTHORED ALBEDO TEST
-	// authored slot 1 = Lumbridge masonry
-	// albedo layer 1 = masonry_albedo.png
-	// ====================================================
-
-	int authoredAlbedoLayer = -1;
-	if (fMaterialId == 2 && fAuthoredSlot == 1)
-	{
-		authoredAlbedoLayer = 1;
-	}
-	else if (fMaterialId == 1 && fAuthoredSlot == 2)
-	{
-		authoredAlbedoLayer = 2;
-	}
-	else if (fMaterialId == 4 && fAuthoredSlot == 3)
-	{
-		authoredAlbedoLayer = 3;
-	}
-	else if (fMaterialId == 2 && fAuthoredSlot == 4)
-	{
-		authoredAlbedoLayer = 4;
-	}
-	else if (fMaterialId == 2 && fAuthoredSlot == 5)
-	{
-		authoredAlbedoLayer = 5;
-	}
-	else if (fMaterialId == 4 && fAuthoredSlot == 6)
-	{
-		authoredAlbedoLayer = 6;
-	}
-
-	if (authoredAlbedoLayer >= 0)
-	{
-		vec2 authoredUv = vec2(
-				fUv.y,
-				1.0 - fUv.x
-		);
-
-		vec3 authoredColor = texture(
-				authoredMaterialAlbedos,
-				vec3(authoredUv, float(authoredAlbedoLayer))
-		).rgb;
-
-		// TEMP TEST: brighten authored albedo before world lighting.
-		authoredColor *= 1.45;
-
-		c.rgb = clamp(authoredColor, 0.0, 1.0);
-	}
+	// Authored appearance identity is resolved by exact source IDs into the
+	// main texture array. Semantic materials never select replacement albedo.
 
     // ====================================================
     // Enhanced water
@@ -846,6 +817,44 @@ void main()
 				vec3(1.0), shadowTransmission, configuredOcclusion);
 			c.rgb = stockSurface * shadowMultiplier;
 		}
+	}
+
+	// General world lighting is separate from semantic material highlights.
+	// Every opaque non-water surface receives the same coherent sun/sky model,
+	// so HD albedo detail is shaped by orientation without changing the texture.
+	if (directionalLightingEnabled != 0 && !waterSurface)
+	{
+		vec3 worldNormal = stableSurfaceNormal();
+		vec3 worldLight = mainPassLightDirection();
+		float facing = max(dot(worldNormal, worldLight), 0.0);
+		float diffuse = smoothstep(0.025, 0.92, facing);
+		float night = clamp(celestialNightFactor, 0.0, 1.0);
+		float sunStrength = clamp(directionalLightingStrength, 0.0, 1.0);
+		float fillStrength = clamp(environmentFillStrength, 0.0, 1.0);
+
+		// Direct light is removed by the existing shadow map while cool sky fill
+		// remains, keeping cast shadows readable instead of black.
+		float daylight = mix(1.0, 0.20, night);
+		float directEnergy = diffuse * sunStrength * 1.22
+			* daylight * materialDirectVisibility;
+		float fillEnergy = mix(0.17, 0.13, night)
+			+ fillStrength * mix(0.36, 0.42, night);
+		vec3 sunTint = mix(
+			vec3(1.00, 0.91, 0.76),
+			vec3(0.58, 0.70, 0.98),
+			night);
+		vec3 skyTint = mix(
+			vec3(0.70, 0.82, 1.00),
+			vec3(0.38, 0.48, 0.74),
+			night);
+		vec3 illumination = sunTint * directEnergy + skyTint * fillEnergy;
+		float illuminationLuma = dot(
+			illumination, vec3(0.2126, 0.7152, 0.0722));
+		vec3 illuminationChroma = illumination
+			/ max(illuminationLuma, 0.0001);
+		float chromaAmount = 0.10 + 0.04 * fillStrength;
+		c.rgb = stockSurface * illuminationLuma;
+		c.rgb *= mix(vec3(1.0), illuminationChroma, chromaAmount);
 	}
 
 	// The explicit CPU tag is the authority for material effects. Generated
@@ -1132,21 +1141,6 @@ void main()
 			weatherMode == 4 ? vec3(0.78, 0.83, 0.87) : vec3(0.76, 0.82, 0.86),
 			clamp(accumulation, 0.0, 0.86));
 	}
-	float weatherDistance = length(cameraPosition - fWorldPos);
-	float weatherMist = 0.0;
-	vec3 weatherMistColor = vec3(0.48, 0.55, 0.60);
-	if (weatherMode == 1) weatherMist = 0.06;
-	if (weatherMode == 2) { weatherMist = 0.28; weatherMistColor = vec3(0.32, 0.35, 0.38); }
-	if (weatherMode == 3) { weatherMist = 0.08; weatherMistColor = vec3(0.68, 0.75, 0.82); }
-	if (weatherMode == 4) { weatherMist = 0.18; weatherMistColor = vec3(0.62, 0.68, 0.74); }
-	float weatherHaze = smoothstep(
-		weatherMode == 2 ? 620.0 : 700.0,
-		weatherMode == 2 ? 3400.0 : 4100.0,
-		weatherDistance) * weatherMist;
-	float hazeVariation = 0.84 + 0.16 * sin(
-		fWorldPos.x * 0.0017 + fWorldPos.z * 0.0011 + weatherTime * 0.055);
-	weatherHaze *= hazeVariation;
-	mixedColor = mix(mixedColor, weatherMistColor, weatherHaze);
 	mixedColor += vec3(0.68, 0.78, 1.0) * lightningFlash
 		* (0.32 + 0.68 * (1.0 - fFogAmount));
 

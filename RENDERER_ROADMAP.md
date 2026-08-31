@@ -5,6 +5,16 @@ acceptance-gated work. The goal is to compete with 117 HD through reliable
 materials, authored content coverage, real geometry, and coherent environment
 response before adding more post-processing or light effects.
 
+## Repository-native exact-ID texture authoring
+
+- [x] Merge source discovery into `data/master-surface-catalog.json`.
+- [x] Discover vanilla, object, underlay, and overlay PNGs by filename.
+- [x] Enforce object -> texture -> terrain -> vanilla appearance precedence.
+- [x] Keep semantic materials for behavior rather than albedo identity.
+- [x] Add optional dominant-axis planar UVs for exact object overrides.
+
+See `HD_TEXTURE_PIPELINE.md` for the permanent authoring workflow.
+
 ## Working Method
 
 Each checkbox is a separately authorized work package. "Next phase" means the

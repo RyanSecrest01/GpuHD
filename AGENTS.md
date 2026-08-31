@@ -105,6 +105,12 @@ recorded in `MATERIAL_ATLAS.md`. Do not reinterpret those channels or widen the
 world VBO without a later package demonstrating that the existing semantic plus
 authored-slot encoding is insufficient.
 
+The repository-native appearance workflow is defined in
+`HD_TEXTURE_PIPELINE.md`. Exact source IDs select appearances. Semantic material
+classes describe behavior. Never use a semantic class as a shortcut for
+authored asset identity when an exact object, texture, underlay, or overlay ID
+is available.
+
 ### Phase and Task Discipline
 
 - Work on only one numbered work package at a time unless the user explicitly

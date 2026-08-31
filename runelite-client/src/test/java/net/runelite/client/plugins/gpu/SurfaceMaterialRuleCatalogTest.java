@@ -82,6 +82,11 @@ public class SurfaceMaterialRuleCatalogTest
 	@Test
 	public void bundledTerrainRulesOverrideTextureAndExposeProvenance()
 	{
+		SurfaceMaterialRuleCatalog.Match lumbridgeGrass =
+			SurfaceMaterialRuleCatalog.resolveTerrain(-1, 0, 96, 3216, 3208, 0);
+		assertEquals(SurfaceMaterial.GRASS, lumbridgeGrass.getMaterial());
+		assertTrue(lumbridgeGrass.isExact());
+
 		SurfaceMaterialRuleCatalog.Match carpet =
 			SurfaceMaterialRuleCatalog.resolveTerrain(129, 1, 13, 3050, 3250, 0);
 		assertEquals(SurfaceMaterial.UNKNOWN, carpet.getMaterial());

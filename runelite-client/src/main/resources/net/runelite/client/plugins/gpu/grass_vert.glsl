@@ -5,8 +5,8 @@
 //   location 1: x = packed RuneLite HSL, y = detail type
 //               type 0 = grass clump, type 1 = stone/pebble pair,
 //               type 2 = sand fragments, type 3 = dirt clods
-// Every instance emits exactly 60 vertices. This keeps the original lightweight
-// instanced draw while allowing material-classified detail geometry.
+// Grass instances emit 120 vertices: ten tapered blades with two vertical
+// segments each. Scatter details reuse the first 60 vertices of this mesh.
 layout(location = 0) in vec4 anchorSeed;
 layout(location = 1) in vec2 anchorDetail;
 
@@ -33,7 +33,7 @@ flat out float fGroundHsl;
 flat out float fDetailType;
 
 const float TWO_PI = 6.28318530718;
-const int BLADES_PER_CLUMP = 5;
+const int BLADES_PER_CLUMP = 10;
 const int SEGMENTS_PER_BLADE = 2;
 const int VERTICES_PER_SEGMENT = 6;
 const int VERTICES_PER_BLADE =
@@ -274,6 +274,13 @@ void emitScatter(float spatialSeed, float scale, int detailType)
 void main()
 {
 	int detailType = clamp(int(floor(anchorDetail.y + 0.5)), 0, 3);
+	// Keep scatter details at their original two-piece topology while the grass
+	// clump uses the expanded ten-blade mesh in this single instanced draw.
+	if (detailType != 0 && gl_VertexID >= 60)
+	{
+		gl_Position = vec4(2.0);
+		return;
+	}
 	// Morphology comes only from the CPU's absolute-world seed. Scene-local GPU
 	// coordinates can rebase as the player walks and must not reshuffle shapes.
 	float spatialSeed = anchorSeed.w * 8191.731 + float(detailType) * 131.17;

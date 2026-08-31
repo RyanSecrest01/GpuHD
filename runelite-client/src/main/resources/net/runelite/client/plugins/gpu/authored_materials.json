@@ -9,13 +9,7 @@
   },
   "layers": {
     "albedo": [
-      { "name": "neutral-vanilla-albedo", "source": "$neutral" },
-      { "name": "masonry-albedo", "source": "materials/masonry_albedo.png" },
-      { "name": "grass-ground-albedo", "source": "materials/Grass_01_Green_2.png" },
-      { "name": "dirt-ground-albedo", "source": "materials/Dirt_Pebbles_01_Brown_1.png" },
-      { "name": "cobblestone-ground-albedo", "source": "materials/Cobblestones_01_Grey_1.png" },
-      { "name": "gravel-ground-albedo", "source": "materials/Gravel_01_Grey_1.png" },
-      { "name": "dirt-rock-ground-albedo", "source": "materials/Dirt_Rocks_01_Brown_2.png" }
+      { "name": "neutral-vanilla-albedo", "source": "$neutral" }
     ],
     "normal": [
       { "name": "neutral-flat-normal", "source": "$neutral" },
@@ -58,13 +52,13 @@
     { "material": "GRASS", "variant": 1, "normalLayer": 1, "propertyLayer": 1, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.70, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.25, "heightScale": 0.010 },
     { "material": "DIRT", "variant": 1, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
     { "material": "SAND", "variant": 1, "normalLayer": 3, "propertyLayer": 3, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.45, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.16, "heightScale": 0.006 },
-    { "material": "STONE", "variant": 1, "albedoLayer": 1, "normalLayer": 5, "propertyLayer": 5, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.65, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.34, "heightScale": 0.014 },
+    { "material": "STONE", "variant": 1, "normalLayer": 5, "propertyLayer": 5, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.65, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.34, "heightScale": 0.014 },
     { "material": "STONE", "variant": 2, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
-    { "material": "GRASS", "variant": 2, "albedoLayer": 2, "normalLayer": 1, "propertyLayer": 1, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.70, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.25, "heightScale": 0.010 },
-    { "material": "DIRT", "variant": 3, "albedoLayer": 3, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
-    { "material": "STONE", "variant": 4, "albedoLayer": 4, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
-    { "material": "STONE", "variant": 5, "albedoLayer": 5, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
-    { "material": "DIRT", "variant": 4, "albedoLayer": 6, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "AUTHORED_REPLACE", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
+    { "material": "GRASS", "variant": 2, "normalLayer": 1, "propertyLayer": 1, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.70, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.25, "heightScale": 0.010 },
+    { "material": "DIRT", "variant": 3, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
+    { "material": "STONE", "variant": 4, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
+    { "material": "STONE", "variant": 5, "normalLayer": 4, "propertyLayer": 4, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.76, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.40, "heightScale": 0.018 },
+    { "material": "DIRT", "variant": 4, "normalLayer": 2, "propertyLayer": 2, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.28, "heightScale": 0.012 },
     { "material": "WOOD", "variant": 1, "normalLayer": 6, "propertyLayer": 6, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.58, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.30, "heightScale": 0.010 },
     { "material": "WOOD", "variant": 2, "normalLayer": 7, "propertyLayer": 7, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.44, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.20, "heightScale": 0.007 },
     { "material": "STONE", "variant": 3, "normalLayer": 8, "propertyLayer": 8, "baseColorMode": "VANILLA_MULTIPLY", "uvScale": 1.0, "normalStrength": 0.62, "roughnessFactor": 1.0, "metallicFactor": 0.0, "aoStrength": 0.32, "heightScale": 0.012 },

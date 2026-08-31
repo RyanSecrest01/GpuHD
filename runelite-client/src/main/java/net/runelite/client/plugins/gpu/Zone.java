@@ -79,6 +79,8 @@ class Zone
 	float[] surfaceDetailAnchors = new float[0];
 	int[] surfaceDetailLevelOffsets = new int[4];
 	int surfaceDetailVisibleFrame = -1;
+	int surfaceDetailEligibleTiles;
+	int surfaceDetailEligibleTriangles;
 
 	// Water remains in the zone's compact terrain VBO, but these ranges let the
 	// dedicated post-opaque pass draw only water triangles without duplicating
@@ -148,6 +150,8 @@ class Zone
 		surfaceDetailAnchors = new float[0];
 		Arrays.fill(surfaceDetailLevelOffsets, 0);
 		surfaceDetailVisibleFrame = -1;
+		surfaceDetailEligibleTiles = 0;
+		surfaceDetailEligibleTriangles = 0;
 		waterStarts = new int[0];
 		waterEnds = new int[0];
 		waterRoofIds = new int[0];

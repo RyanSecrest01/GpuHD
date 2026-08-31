@@ -32,6 +32,7 @@ import net.runelite.api.Projection;
 
 class ModelUploader
 {
+	static final int AUTHORED_PLANAR_UV_FLAG = 1 << 7;
 	final int[] distances;
 	final char[] zsortHead, zsortTail, zsortNext;
 
@@ -104,6 +105,11 @@ class ModelUploader
 		final byte[] faceRenderPriorities = model.getFaceRenderPriorities();
 
 		final short[] faceTextures = model.getFaceTextures();
+		final HdTextureRegistry.ObjectOverride objectOverride =
+			HdTextureRegistry.get().getObject(objectId);
+		final int authoredUvFlags = objectOverride != null
+			&& objectOverride.getUvMode() == HdTextureRegistry.UvMode.PLANAR
+			? AUTHORED_PLANAR_UV_FLAG : 0;
 
 		final byte[] transparencies = model.getFaceTransparencies();
 		final byte modelTransparency = model.getTransparency();
@@ -201,7 +207,15 @@ class ModelUploader
 					minFz = Math.min(minFz, distance);
 					maxFz = Math.max(maxFz, distance);
 
-					computeFaceUvs(model, faceIdx, u, v);
+					if (objectOverride != null
+						&& objectOverride.getUvMode() == HdTextureRegistry.UvMode.PLANAR)
+					{
+						computePlanarFaceUvs(modelLocalX[v1], modelLocalY[v1], modelLocalZ[v1],
+							modelLocalX[v2], modelLocalY[v2], modelLocalZ[v2],
+							modelLocalX[v3], modelLocalY[v3], modelLocalZ[v3],
+							objectOverride.getUvScale(), u, v);
+					}
+					else computeFaceUvs(model, faceIdx, u, v);
 
 					int su0 = (int) (u[0] * 256f);
 					int sv0 = (int) (v[0] * 256f);
@@ -236,9 +250,13 @@ class ModelUploader
 					alphaBias |= faceTransparency(modelTransparency, transparencies != null ? transparencies[faceIdx] & 0xff : 0) << 24;
 					alphaBias |= bias != null ? (bias[faceIdx] & 0xff) << 16 : 0;
 					int textureId = faceTextures != null ? faceTextures[faceIdx] : -1;
-					int texture = SurfaceMaterialClassifier.classifyObjectMatch(
-						textureId, objectId, worldX, worldY, plane)
-						.packTextureCode(textureId + 1);
+					SurfaceMaterialRuleCatalog.Match materialMatch =
+						SurfaceMaterialClassifier.classifyObjectMatch(
+							textureId, objectId, worldX, worldY, plane);
+					int texture = objectOverride != null
+						? materialMatch.getMaterial().packTextureCode(objectOverride.getLayer() + 1,
+							materialMatch.getAuthoredSlot())
+						: materialMatch.packTextureCode(textureId + 1);
 
 					int vbOff = faceIdx * FACE_SIZE;
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v1]);
@@ -246,21 +264,21 @@ class ModelUploader
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v1]);
 					vertexBuffer[vbOff++] = alphaBias | color1;
 					vertexBuffer[vbOff++] = ((su0 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv0 & 0xffff;
+					vertexBuffer[vbOff++] = authoredUvFlags << 16 | (sv0 & 0xffff);
 
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v2]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalY[v2]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v2]);
 					vertexBuffer[vbOff++] = alphaBias | color2;
 					vertexBuffer[vbOff++] = ((su1 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv1 & 0xffff;
+					vertexBuffer[vbOff++] = authoredUvFlags << 16 | (sv1 & 0xffff);
 
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalX[v3]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalY[v3]);
 					vertexBuffer[vbOff++] = Float.floatToIntBits(modelLocalZ[v3]);
 					vertexBuffer[vbOff++] = alphaBias | color3;
 					vertexBuffer[vbOff++] = ((su2 & 0xffff) << 16 | (texture & 0xffff));
-					vertexBuffer[vbOff++] = sv2 & 0xffff;
+					vertexBuffer[vbOff++] = authoredUvFlags << 16 | (sv2 & 0xffff);
 				}
 			}
 		}
@@ -502,6 +520,11 @@ class ModelUploader
 		final byte[] transparencies = model.getFaceTransparencies();
 
 		final short[] faceTextures = model.getFaceTextures();
+		final HdTextureRegistry.ObjectOverride objectOverride =
+			HdTextureRegistry.get().getObject(objectId);
+		final int authoredUvFlags = objectOverride != null
+			&& objectOverride.getUvMode() == HdTextureRegistry.UvMode.PLANAR
+			? AUTHORED_PLANAR_UV_FLAG : 0;
 
 		final byte[] bias = model.getFaceBias();
 
@@ -583,7 +606,13 @@ class ModelUploader
 			float vy3 = modelLocalY[triangleC];
 			float vz3 = modelLocalZ[triangleC];
 
-			computeFaceUvs(model, face, u, v);
+			if (objectOverride != null
+				&& objectOverride.getUvMode() == HdTextureRegistry.UvMode.PLANAR)
+			{
+				computePlanarFaceUvs(vx1, vy1, vz1, vx2, vy2, vz2, vx3, vy3, vz3,
+					objectOverride.getUvScale(), u, v);
+			}
+			else computeFaceUvs(model, face, u, v);
 
 			int su0 = (int) (u[0] * 256f);
 			int sv0 = (int) (v[0] * 256f);
@@ -598,18 +627,22 @@ class ModelUploader
 			alphaBias |= transparencies != null ? (transparencies[face] & 0xff) << 24 : 0;
 			alphaBias |= bias != null ? (bias[face] & 0xff) << 16 : 0;
 			int textureId = faceTextures != null ? faceTextures[face] : -1;
-			int texture = SurfaceMaterialClassifier.classifyObjectMatch(
-				textureId, objectId, worldX, worldY, plane)
-				.packTextureCode(textureId + 1);
+			SurfaceMaterialRuleCatalog.Match materialMatch =
+				SurfaceMaterialClassifier.classifyObjectMatch(
+					textureId, objectId, worldX, worldY, plane);
+			int texture = objectOverride != null
+				? materialMatch.getMaterial().packTextureCode(objectOverride.getLayer() + 1,
+					materialMatch.getAuthoredSlot())
+				: materialMatch.packTextureCode(textureId + 1);
 
 			putfff4(buffer, vx1, vy1, vz1, alphaBias | color1);
-			put2222(buffer, texture, su0, sv0, 0);
+			put2222(buffer, texture, su0, sv0, authoredUvFlags);
 
 			putfff4(buffer, vx2, vy2, vz2, alphaBias | color2);
-			put2222(buffer, texture, su1, sv1, 0);
+			put2222(buffer, texture, su1, sv1, authoredUvFlags);
 
 			putfff4(buffer, vx3, vy3, vz3, alphaBias | color3);
-			put2222(buffer, texture, su2, sv2, 0);
+			put2222(buffer, texture, su2, sv2, authoredUvFlags);
 
 			len += 3;
 		}
@@ -653,6 +686,39 @@ class ModelUploader
 		}
 
 		return (hue << 10 | sat << 7 | lum) & 65535;
+	}
+
+	/** Stable dominant-axis planar projection for exact authored object assets. */
+	static void computePlanarFaceUvs(float x0, float y0, float z0,
+		float x1, float y1, float z1, float x2, float y2, float z2,
+		float uvScale, float[] u, float[] v)
+	{
+		float ax = x1 - x0, ay = y1 - y0, az = z1 - z0;
+		float bx = x2 - x0, by = y2 - y0, bz = z2 - z0;
+		float nx = ay * bz - az * by;
+		float ny = az * bx - ax * bz;
+		float nz = ax * by - ay * bx;
+		float sx = Math.abs(nx), sy = Math.abs(ny), sz = Math.abs(nz);
+		float density = uvScale / Perspective.LOCAL_TILE_SIZE;
+		float[] xs = {x0, x1, x2}, ys = {y0, y1, y2}, zs = {z0, z1, z2};
+		for (int i = 0; i < 3; i++)
+		{
+			if (sy >= sx && sy >= sz) // horizontal: X/Z
+			{
+				u[i] = xs[i] * density;
+				v[i] = (ny >= 0 ? zs[i] : -zs[i]) * density;
+			}
+			else if (sx >= sz) // wall normal primarily +/-X: Z/Y
+			{
+				u[i] = (nx >= 0 ? zs[i] : -zs[i]) * density;
+				v[i] = -ys[i] * density;
+			}
+			else // wall normal primarily +/-Z: X/Y
+			{
+				u[i] = (nz >= 0 ? -xs[i] : xs[i]) * density;
+				v[i] = -ys[i] * density;
+			}
+		}
 	}
 
 	static void computeFaceUvs(Model model, int face, float[] u, float[] v)

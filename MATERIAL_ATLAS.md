@@ -22,6 +22,11 @@ material factors. It is loaded and validated once. RuneLite's existing texture
 and vertex color remain the authoritative base color via
 `VANILLA_MULTIPLY`; authored albedo replacement is not part of this contract.
 
+Replacement albedo identity belongs to the convention-based exact-ID registry
+documented in `HD_TEXTURE_PIPELINE.md`. Authored slots may still describe
+bounded normal/property behavior, but semantic slots never select replacement
+color.
+
 ## Layer Encodings
 
 All layers are 128×128 `GL_RGBA8` with generated mipmaps.
@@ -55,8 +60,10 @@ is the vanilla fallback. Object rules can distinguish, for example, Lumbridge
 masonry from dock wood without pretending those surfaces are different semantic
 materials or widening vertices.
 
-`tex.w` and `abhsl` remain untouched because their bits are already committed
-to terrain/water edges, alpha, bias, and generated-water-bed markers.
+`abhsl` remains untouched. `tex.w` retains its terrain/water edge contract;
+bit 7 is contextually reused only on non-terrain exact-object faces to mark
+opt-in generated planar UVs. The terrain flag must be false before the shader
+interprets that bit as an object UV flag.
 
 ## First Pack
 

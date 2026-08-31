@@ -1,0 +1,4002 @@
+{
+  "version": 1,
+  "textures": {
+    "0": {
+      "id": 0,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "1": {
+      "id": 1,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "2": {
+      "id": 2,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "3": {
+      "id": 3,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "4": {
+      "id": 4,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "5": {
+      "id": 5,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "6": {
+      "id": 6,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "7": {
+      "id": 7,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 6984,
+      "transparentCoverage": 0.42626953125
+    },
+    "8": {
+      "id": 8,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "9": {
+      "id": 9,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3442,
+      "transparentCoverage": 0.2100830078125
+    },
+    "10": {
+      "id": 10,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "11": {
+      "id": 11,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "12": {
+      "id": 12,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11135,
+      "transparentCoverage": 0.67962646484375
+    },
+    "13": {
+      "id": 13,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "14": {
+      "id": 14,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "15": {
+      "id": 15,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "16": {
+      "id": 16,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "17": {
+      "id": 17,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 15499,
+      "transparentCoverage": 0.94598388671875
+    },
+    "18": {
+      "id": 18,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "19": {
+      "id": 19,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8623,
+      "transparentCoverage": 0.52630615234375
+    },
+    "20": {
+      "id": 20,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "21": {
+      "id": 21,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 2613,
+      "transparentCoverage": 0.15948486328125
+    },
+    "22": {
+      "id": 22,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "23": {
+      "id": 23,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "24": {
+      "id": 24,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "25": {
+      "id": 25,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "26": {
+      "id": 26,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11973,
+      "transparentCoverage": 0.73077392578125
+    },
+    "27": {
+      "id": 27,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "28": {
+      "id": 28,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9056,
+      "transparentCoverage": 0.552734375
+    },
+    "29": {
+      "id": 29,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3630,
+      "transparentCoverage": 0.2215576171875
+    },
+    "30": {
+      "id": 30,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3556,
+      "transparentCoverage": 0.217041015625
+    },
+    "31": {
+      "id": 31,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "32": {
+      "id": 32,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "33": {
+      "id": 33,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3765,
+      "transparentCoverage": 0.22979736328125
+    },
+    "34": {
+      "id": 34,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 15489,
+      "transparentCoverage": 0.94537353515625
+    },
+    "35": {
+      "id": 35,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "36": {
+      "id": 36,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "37": {
+      "id": 37,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "38": {
+      "id": 38,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "39": {
+      "id": 39,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "40": {
+      "id": 40,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "41": {
+      "id": 41,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "42": {
+      "id": 42,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "43": {
+      "id": 43,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "44": {
+      "id": 44,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "45": {
+      "id": 45,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "46": {
+      "id": 46,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "47": {
+      "id": 47,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "48": {
+      "id": 48,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "49": {
+      "id": 49,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "50": {
+      "id": 50,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "51": {
+      "id": 51,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "52": {
+      "id": 52,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 16048,
+      "transparentCoverage": 0.9794921875
+    },
+    "53": {
+      "id": 53,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "55": {
+      "id": 55,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "56": {
+      "id": 56,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "57": {
+      "id": 57,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "58": {
+      "id": 58,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 2738,
+      "transparentCoverage": 0.1671142578125
+    },
+    "59": {
+      "id": 59,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "60": {
+      "id": 60,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 48,
+      "transparentCoverage": 0.0029296875
+    },
+    "61": {
+      "id": 61,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 6696,
+      "transparentCoverage": 0.40869140625
+    },
+    "62": {
+      "id": 62,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8944,
+      "transparentCoverage": 0.5458984375
+    },
+    "63": {
+      "id": 63,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7928,
+      "transparentCoverage": 0.48388671875
+    },
+    "64": {
+      "id": 64,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7216,
+      "transparentCoverage": 0.4404296875
+    },
+    "65": {
+      "id": 65,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 5608,
+      "transparentCoverage": 0.34228515625
+    },
+    "66": {
+      "id": 66,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8576,
+      "transparentCoverage": 0.5234375
+    },
+    "67": {
+      "id": 67,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7216,
+      "transparentCoverage": 0.4404296875
+    },
+    "68": {
+      "id": 68,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8624,
+      "transparentCoverage": 0.5263671875
+    },
+    "69": {
+      "id": 69,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9776,
+      "transparentCoverage": 0.5966796875
+    },
+    "70": {
+      "id": 70,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 10784,
+      "transparentCoverage": 0.658203125
+    },
+    "71": {
+      "id": 71,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11344,
+      "transparentCoverage": 0.6923828125
+    },
+    "72": {
+      "id": 72,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 12088,
+      "transparentCoverage": 0.73779296875
+    },
+    "73": {
+      "id": 73,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9564,
+      "transparentCoverage": 0.583740234375
+    },
+    "74": {
+      "id": 74,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7340,
+      "transparentCoverage": 0.447998046875
+    },
+    "75": {
+      "id": 75,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9768,
+      "transparentCoverage": 0.59619140625
+    },
+    "76": {
+      "id": 76,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7648,
+      "transparentCoverage": 0.466796875
+    },
+    "77": {
+      "id": 77,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 10636,
+      "transparentCoverage": 0.649169921875
+    },
+    "78": {
+      "id": 78,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7384,
+      "transparentCoverage": 0.45068359375
+    },
+    "79": {
+      "id": 79,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11540,
+      "transparentCoverage": 0.704345703125
+    },
+    "80": {
+      "id": 80,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11264,
+      "transparentCoverage": 0.6875
+    },
+    "81": {
+      "id": 81,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11584,
+      "transparentCoverage": 0.70703125
+    },
+    "82": {
+      "id": 82,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 11476,
+      "transparentCoverage": 0.700439453125
+    },
+    "83": {
+      "id": 83,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9724,
+      "transparentCoverage": 0.593505859375
+    },
+    "84": {
+      "id": 84,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 7656,
+      "transparentCoverage": 0.46728515625
+    },
+    "85": {
+      "id": 85,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9672,
+      "transparentCoverage": 0.59033203125
+    },
+    "86": {
+      "id": 86,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 9252,
+      "transparentCoverage": 0.564697265625
+    },
+    "87": {
+      "id": 87,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8696,
+      "transparentCoverage": 0.53076171875
+    },
+    "88": {
+      "id": 88,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 16380,
+      "transparentCoverage": 0.999755859375
+    },
+    "89": {
+      "id": 89,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 48,
+      "transparentCoverage": 0.0029296875
+    },
+    "90": {
+      "id": 90,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "91": {
+      "id": 91,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "92": {
+      "id": 92,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "93": {
+      "id": 93,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "94": {
+      "id": 94,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "95": {
+      "id": 95,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "96": {
+      "id": 96,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 12556,
+      "transparentCoverage": 0.766357421875
+    },
+    "97": {
+      "id": 97,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 15009,
+      "transparentCoverage": 0.91607666015625
+    },
+    "98": {
+      "id": 98,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "99": {
+      "id": 99,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "100": {
+      "id": 100,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "101": {
+      "id": 101,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "102": {
+      "id": 102,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "103": {
+      "id": 103,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 8851,
+      "transparentCoverage": 0.54022216796875
+    },
+    "104": {
+      "id": 104,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "105": {
+      "id": 105,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "106": {
+      "id": 106,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "107": {
+      "id": 107,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "108": {
+      "id": 108,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "109": {
+      "id": 109,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 14032,
+      "transparentCoverage": 0.8564453125
+    },
+    "110": {
+      "id": 110,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "111": {
+      "id": 111,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "112": {
+      "id": 112,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "113": {
+      "id": 113,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "114": {
+      "id": 114,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "115": {
+      "id": 115,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4669,
+      "transparentCoverage": 0.28497314453125
+    },
+    "116": {
+      "id": 116,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "117": {
+      "id": 117,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "118": {
+      "id": 118,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "119": {
+      "id": 119,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "120": {
+      "id": 120,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "121": {
+      "id": 121,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "122": {
+      "id": 122,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "123": {
+      "id": 123,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "124": {
+      "id": 124,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "125": {
+      "id": 125,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "126": {
+      "id": 126,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "127": {
+      "id": 127,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3757,
+      "transparentCoverage": 0.22930908203125
+    },
+    "128": {
+      "id": 128,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 48,
+      "transparentCoverage": 0.0029296875
+    },
+    "129": {
+      "id": 129,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "130": {
+      "id": 130,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "131": {
+      "id": 131,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "132": {
+      "id": 132,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "133": {
+      "id": 133,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "134": {
+      "id": 134,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "135": {
+      "id": 135,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "136": {
+      "id": 136,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "137": {
+      "id": 137,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "138": {
+      "id": 138,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "139": {
+      "id": 139,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "140": {
+      "id": 140,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "141": {
+      "id": 141,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "142": {
+      "id": 142,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "143": {
+      "id": 143,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "144": {
+      "id": 144,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "145": {
+      "id": 145,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "146": {
+      "id": 146,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "147": {
+      "id": 147,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "148": {
+      "id": 148,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "149": {
+      "id": 149,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "150": {
+      "id": 150,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "151": {
+      "id": 151,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "152": {
+      "id": 152,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "153": {
+      "id": 153,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "154": {
+      "id": 154,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "155": {
+      "id": 155,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "156": {
+      "id": 156,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "157": {
+      "id": 157,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "158": {
+      "id": 158,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "159": {
+      "id": 159,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "160": {
+      "id": 160,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "161": {
+      "id": 161,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "162": {
+      "id": 162,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "163": {
+      "id": 163,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "164": {
+      "id": 164,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "165": {
+      "id": 165,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "166": {
+      "id": 166,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "167": {
+      "id": 167,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "168": {
+      "id": 168,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "169": {
+      "id": 169,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "170": {
+      "id": 170,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "171": {
+      "id": 171,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "172": {
+      "id": 172,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "173": {
+      "id": 173,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "174": {
+      "id": 174,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "175": {
+      "id": 175,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "176": {
+      "id": 176,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "177": {
+      "id": 177,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "178": {
+      "id": 178,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "179": {
+      "id": 179,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "180": {
+      "id": 180,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "181": {
+      "id": 181,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "182": {
+      "id": 182,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "183": {
+      "id": 183,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "184": {
+      "id": 184,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "185": {
+      "id": 185,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "186": {
+      "id": 186,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "187": {
+      "id": 187,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "188": {
+      "id": 188,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "189": {
+      "id": 189,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "190": {
+      "id": 190,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3695,
+      "transparentCoverage": 0.22552490234375
+    },
+    "191": {
+      "id": 191,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 195,
+      "transparentCoverage": 0.01190185546875
+    },
+    "192": {
+      "id": 192,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3695,
+      "transparentCoverage": 0.22552490234375
+    },
+    "193": {
+      "id": 193,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 195,
+      "transparentCoverage": 0.01190185546875
+    },
+    "194": {
+      "id": 194,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 5798,
+      "transparentCoverage": 0.3538818359375
+    },
+    "195": {
+      "id": 195,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 38,
+      "transparentCoverage": 0.0023193359375
+    },
+    "196": {
+      "id": 196,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 5798,
+      "transparentCoverage": 0.3538818359375
+    },
+    "197": {
+      "id": 197,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 38,
+      "transparentCoverage": 0.0023193359375
+    },
+    "198": {
+      "id": 198,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 2677,
+      "transparentCoverage": 0.16339111328125
+    },
+    "199": {
+      "id": 199,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 260,
+      "transparentCoverage": 0.015869140625
+    },
+    "200": {
+      "id": 200,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 2677,
+      "transparentCoverage": 0.16339111328125
+    },
+    "201": {
+      "id": 201,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 257,
+      "transparentCoverage": 0.01568603515625
+    },
+    "202": {
+      "id": 202,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 6191,
+      "transparentCoverage": 0.37786865234375
+    },
+    "203": {
+      "id": 203,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 221,
+      "transparentCoverage": 0.01348876953125
+    },
+    "204": {
+      "id": 204,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 6191,
+      "transparentCoverage": 0.37786865234375
+    },
+    "205": {
+      "id": 205,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 221,
+      "transparentCoverage": 0.01348876953125
+    },
+    "206": {
+      "id": 206,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "207": {
+      "id": 207,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "208": {
+      "id": 208,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": false,
+      "transparentPixels": 0,
+      "transparentCoverage": 0.0
+    },
+    "209": {
+      "id": 209,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 4649,
+      "transparentCoverage": 0.28375244140625
+    },
+    "210": {
+      "id": 210,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 526,
+      "transparentCoverage": 0.0321044921875
+    },
+    "211": {
+      "id": 211,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "212": {
+      "id": 212,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 48,
+      "transparentCoverage": 0.0029296875
+    },
+    "213": {
+      "id": 213,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 3767,
+      "transparentCoverage": 0.22991943359375
+    },
+    "214": {
+      "id": 214,
+      "sourceWidth": 128,
+      "sourceHeight": 128,
+      "hasTransparency": true,
+      "transparentPixels": 48,
+      "transparentCoverage": 0.0029296875
+    }
+  },
+  "objects": {
+    "85": {
+      "id": 85,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        2,
+        4
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 3
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "196": {
+      "id": 196,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3208:0": 1,
+        "3216:3216:0": 2,
+        "3224:3216:0": 6
+      },
+      "occurrences": 9,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "255": {
+      "id": 255,
+      "name": "Winch",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1024
+      ],
+      "sightings": [
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3224:3216:2": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3218,
+      "samplePlane": 2
+    },
+    "324": {
+      "id": 324,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 1,
+        "3240:3216:0": 3
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3217,
+      "sampleWorldY": 3203,
+      "samplePlane": 0
+    },
+    "325": {
+      "id": 325,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 2,
+        "3240:3216:0": 21
+      },
+      "occurrences": 23,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3203,
+      "samplePlane": 0
+    },
+    "326": {
+      "id": 326,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 1,
+        "3240:3216:0": 2
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3220,
+      "sampleWorldY": 3203,
+      "samplePlane": 0
+    },
+    "336": {
+      "id": 336,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0",
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3208:0": 7,
+        "3216:3216:0": 2,
+        "3224:3216:0": 5,
+        "3232:3208:0": 5
+      },
+      "occurrences": 19,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3211,
+      "samplePlane": 0
+    },
+    "358": {
+      "id": 358,
+      "name": "Crate",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [
+        512
+      ],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3221,
+      "samplePlane": 1
+    },
+    "364": {
+      "id": 364,
+      "name": "Barrel",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [
+        0,
+        1536
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "604": {
+      "id": 604,
+      "name": "Table",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3233,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "718": {
+      "id": 718,
+      "name": "Barrel",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [
+        512
+      ],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3216,
+      "samplePlane": 1
+    },
+    "767": {
+      "id": 767,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3223,
+      "samplePlane": 1
+    },
+    "817": {
+      "id": 817,
+      "name": "Suit of armour",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1024
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3221,
+      "samplePlane": 0
+    },
+    "821": {
+      "id": 821,
+      "name": "Cannon",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3216:3208:1",
+        "3216:3216:1",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3208:1": 1,
+        "3216:3216:1": 1,
+        "3224:3216:2": 4
+      },
+      "occurrences": 6,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3217,
+      "samplePlane": 2
+    },
+    "822": {
+      "id": 822,
+      "name": "Cannonballs",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3224:3216:2": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3220,
+      "samplePlane": 2
+    },
+    "827": {
+      "id": 827,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3224:3216:2": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3227,
+      "sampleWorldY": 3219,
+      "samplePlane": 2
+    },
+    "840": {
+      "id": 840,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3216:0",
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 2,
+        "3224:3216:0": 4
+      },
+      "occurrences": 6,
+      "sampleWorldX": 3227,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "856": {
+      "id": 856,
+      "name": "Standard",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3216:3208:1"
+      ],
+      "observedCounts": {
+        "3216:3208:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3213,
+      "samplePlane": 1
+    },
+    "879": {
+      "id": 879,
+      "name": "Fountain",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        1,
+        17
+      ],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3208:0": 4
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3221,
+      "sampleWorldY": 3210,
+      "samplePlane": 0
+    },
+    "899": {
+      "id": 899,
+      "name": "Hanging banner",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "901": {
+      "id": 901,
+      "name": "Hanging banner",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [
+        2,
+        16
+      ],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3221,
+      "samplePlane": 0
+    },
+    "917": {
+      "id": 917,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "925": {
+      "id": 925,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 4
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3238,
+      "sampleWorldY": 3209,
+      "samplePlane": 0
+    },
+    "926": {
+      "id": 926,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3238,
+      "sampleWorldY": 3210,
+      "samplePlane": 0
+    },
+    "973": {
+      "id": 973,
+      "name": "Javelin",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3223,
+      "samplePlane": 0
+    },
+    "980": {
+      "id": 980,
+      "name": "null",
+      "types": [
+        "GAME",
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        2,
+        32,
+        512
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 8
+      },
+      "occurrences": 8,
+      "sampleWorldX": 3242,
+      "sampleWorldY": 3218,
+      "samplePlane": 0
+    },
+    "981": {
+      "id": 981,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        32
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3241,
+      "sampleWorldY": 3219,
+      "samplePlane": 0
+    },
+    "1107": {
+      "id": 1107,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3227,
+      "sampleWorldY": 3223,
+      "samplePlane": 1
+    },
+    "1124": {
+      "id": 1124,
+      "name": "Bush",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8
+      ],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 4
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "1173": {
+      "id": 1173,
+      "name": "Small fern",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3203,
+      "samplePlane": 0
+    },
+    "1188": {
+      "id": 1188,
+      "name": "Flower",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        512,
+        1024,
+        1536
+      ],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 3
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3221,
+      "sampleWorldY": 3204,
+      "samplePlane": 0
+    },
+    "1189": {
+      "id": 1189,
+      "name": "Daisies",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        1536
+      ],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3213,
+      "samplePlane": 0
+    },
+    "1192": {
+      "id": 1192,
+      "name": "Flowers",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3222,
+      "sampleWorldY": 3205,
+      "samplePlane": 0
+    },
+    "1247": {
+      "id": 1247,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3208:1",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3208:1": 1,
+        "3224:3216:2": 1
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3221,
+      "samplePlane": 2
+    },
+    "1248": {
+      "id": 1248,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3208:0",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3208:0": 1,
+        "3224:3216:2": 4
+      },
+      "occurrences": 5,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3216,
+      "samplePlane": 2
+    },
+    "1521": {
+      "id": 1521,
+      "name": "Large door",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        8
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3244,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "1524": {
+      "id": 1524,
+      "name": "Large door",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        8
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3243,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "1529": {
+      "id": 1529,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        8
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3218,
+      "samplePlane": 0
+    },
+    "1530": {
+      "id": 1530,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        2
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3219,
+      "samplePlane": 0
+    },
+    "1535": {
+      "id": 1535,
+      "name": "Door",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        4
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3226,
+      "sampleWorldY": 3223,
+      "samplePlane": 0
+    },
+    "1540": {
+      "id": 1540,
+      "name": "Door",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        1
+      ],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3238,
+      "sampleWorldY": 3210,
+      "samplePlane": 0
+    },
+    "1556": {
+      "id": 1556,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        1
+      ],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3218,
+      "samplePlane": 1
+    },
+    "1557": {
+      "id": 1557,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        1
+      ],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3219,
+      "samplePlane": 1
+    },
+    "1651": {
+      "id": 1651,
+      "name": "null",
+      "types": [
+        "GAME",
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        8,
+        64,
+        1024
+      ],
+      "sightings": [
+        "3216:3200:1"
+      ],
+      "observedCounts": {
+        "3216:3200:1": 11
+      },
+      "occurrences": 11,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3203,
+      "samplePlane": 1
+    },
+    "1790": {
+      "id": 1790,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        6
+      ],
+      "orientations": [
+        512,
+        1024
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3208,
+      "samplePlane": 1
+    },
+    "1821": {
+      "id": 1821,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "1847": {
+      "id": 1847,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3240:3216:1"
+      ],
+      "observedCounts": {
+        "3240:3216:1": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3242,
+      "sampleWorldY": 3216,
+      "samplePlane": 1
+    },
+    "1902": {
+      "id": 1902,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        1,
+        2,
+        4,
+        8,
+        128
+      ],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 11
+      },
+      "occurrences": 11,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3209,
+      "samplePlane": 0
+    },
+    "1911": {
+      "id": 1911,
+      "name": "null",
+      "types": [
+        "GAME",
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        512,
+        1024,
+        1536
+      ],
+      "sightings": [
+        "3216:3200:0",
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0",
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 11,
+        "3216:3208:0": 9,
+        "3216:3216:0": 6,
+        "3224:3216:0": 39,
+        "3240:3216:0": 2
+      },
+      "occurrences": 67,
+      "sampleWorldX": 3226,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "1912": {
+      "id": 1912,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        64,
+        128
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3240,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "1913": {
+      "id": 1913,
+      "name": "null",
+      "types": [
+        "GAME",
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        1,
+        4,
+        16,
+        32
+      ],
+      "sightings": [
+        "3216:3200:1",
+        "3216:3208:1",
+        "3216:3216:1",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3200:1": 1,
+        "3216:3208:1": 8,
+        "3216:3216:1": 8,
+        "3224:3216:2": 16
+      },
+      "occurrences": 33,
+      "sampleWorldX": 3226,
+      "sampleWorldY": 3216,
+      "samplePlane": 2
+    },
+    "1924": {
+      "id": 1924,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        2,
+        6
+      ],
+      "orientations": [
+        512,
+        1536
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 8
+      },
+      "occurrences": 8,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3208,
+      "samplePlane": 1
+    },
+    "1938": {
+      "id": 1938,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 4,
+        "3216:3208:0": 4,
+        "3216:3216:0": 2,
+        "3224:3216:1": 8
+      },
+      "occurrences": 18,
+      "sampleWorldX": 3226,
+      "sampleWorldY": 3222,
+      "samplePlane": 1
+    },
+    "2771": {
+      "id": 2771,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3222,
+      "sampleWorldY": 3211,
+      "samplePlane": 0
+    },
+    "2877": {
+      "id": 2877,
+      "name": "Barrel",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [
+        1024
+      ],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3228,
+      "sampleWorldY": 3221,
+      "samplePlane": 1
+    },
+    "3474": {
+      "id": 3474,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 3
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "3684": {
+      "id": 3684,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 6
+      },
+      "occurrences": 6,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3218,
+      "samplePlane": 0
+    },
+    "4641": {
+      "id": 4641,
+      "name": "Stacked barrels",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        16
+      ],
+      "orientations": [
+        0,
+        1536
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 4
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3229,
+      "sampleWorldY": 3216,
+      "samplePlane": 0
+    },
+    "4735": {
+      "id": 4735,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3216:3208:0",
+        "3224:3216:0",
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 14,
+        "3216:3208:0": 2,
+        "3224:3216:0": 9,
+        "3232:3208:0": 7
+      },
+      "occurrences": 32,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3211,
+      "samplePlane": 0
+    },
+    "4736": {
+      "id": 4736,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 6,
+        "3232:3208:0": 7
+      },
+      "occurrences": 13,
+      "sampleWorldX": 3233,
+      "sampleWorldY": 3210,
+      "samplePlane": 0
+    },
+    "4737": {
+      "id": 4737,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0",
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 2,
+        "3232:3208:0": 1
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3210,
+      "samplePlane": 0
+    },
+    "4738": {
+      "id": 4738,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 3
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3216,
+      "sampleWorldY": 3202,
+      "samplePlane": 0
+    },
+    "4739": {
+      "id": 4739,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:0",
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 5,
+        "3232:3208:0": 1
+      },
+      "occurrences": 6,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3209,
+      "samplePlane": 0
+    },
+    "4740": {
+      "id": 4740,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3233,
+      "sampleWorldY": 3209,
+      "samplePlane": 0
+    },
+    "5533": {
+      "id": 5533,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 5
+      },
+      "occurrences": 5,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "5534": {
+      "id": 5534,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3214,
+      "samplePlane": 0
+    },
+    "5535": {
+      "id": 5535,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3208,
+      "samplePlane": 0
+    },
+    "5536": {
+      "id": 5536,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:0",
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1,
+        "3240:3216:0": 1
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3231,
+      "sampleWorldY": 3222,
+      "samplePlane": 0
+    },
+    "5556": {
+      "id": 5556,
+      "name": "Hanging tapestry",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:1"
+      ],
+      "observedCounts": {
+        "3224:3216:1": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3217,
+      "samplePlane": 1
+    },
+    "5604": {
+      "id": 5604,
+      "name": "Rock",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1024
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3246,
+      "sampleWorldY": 3223,
+      "samplePlane": 0
+    },
+    "5629": {
+      "id": 5629,
+      "name": "Standard",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3216:1",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3216:1": 2,
+        "3224:3216:2": 1
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3231,
+      "sampleWorldY": 3223,
+      "samplePlane": 2
+    },
+    "5630": {
+      "id": 5630,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3216:1",
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3216:1": 2,
+        "3224:3216:2": 1
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3230,
+      "sampleWorldY": 3223,
+      "samplePlane": 2
+    },
+    "5633": {
+      "id": 5633,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        8
+      ],
+      "sightings": [
+        "3240:3216:1"
+      ],
+      "observedCounts": {
+        "3240:3216:1": 8
+      },
+      "occurrences": 8,
+      "sampleWorldX": 3240,
+      "sampleWorldY": 3216,
+      "samplePlane": 1
+    },
+    "5647": {
+      "id": 5647,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        6
+      ],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3209,
+      "samplePlane": 1
+    },
+    "5651": {
+      "id": 5651,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2,
+        6
+      ],
+      "orientations": [
+        0,
+        1
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3208,
+      "samplePlane": 1
+    },
+    "5662": {
+      "id": 5662,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        6
+      ],
+      "orientations": [
+        512,
+        1024,
+        1536
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 4
+      },
+      "occurrences": 4,
+      "sampleWorldX": 3232,
+      "sampleWorldY": 3209,
+      "samplePlane": 1
+    },
+    "5663": {
+      "id": 5663,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        6
+      ],
+      "orientations": [
+        1024,
+        1536
+      ],
+      "sightings": [
+        "3232:3208:1"
+      ],
+      "observedCounts": {
+        "3232:3208:1": 3
+      },
+      "occurrences": 3,
+      "sampleWorldX": 3233,
+      "sampleWorldY": 3209,
+      "samplePlane": 1
+    },
+    "5791": {
+      "id": 5791,
+      "name": "Statue",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3217,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "6963": {
+      "id": 6963,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3215,
+      "samplePlane": 0
+    },
+    "6964": {
+      "id": 6964,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3213,
+      "samplePlane": 0
+    },
+    "6966": {
+      "id": 6966,
+      "name": "null",
+      "types": [
+        "WALL"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        0,
+        4
+      ],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3239,
+      "sampleWorldY": 3213,
+      "samplePlane": 0
+    },
+    "9251": {
+      "id": 9251,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3231,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "9292": {
+      "id": 9292,
+      "name": "Statue",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        512
+      ],
+      "sightings": [
+        "3224:3216:0"
+      ],
+      "observedCounts": {
+        "3224:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3231,
+      "sampleWorldY": 3220,
+      "samplePlane": 0
+    },
+    "10586": {
+      "id": 10586,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8
+      ],
+      "orientations": [
+        512
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3220,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "10778": {
+      "id": 10778,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8
+      ],
+      "orientations": [
+        512
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3223,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "10818": {
+      "id": 10818,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3220,
+      "sampleWorldY": 3217,
+      "samplePlane": 0
+    },
+    "10820": {
+      "id": 10820,
+      "name": "Oak tree",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8,
+        60
+      ],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 9
+      },
+      "occurrences": 9,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3205,
+      "samplePlane": 0
+    },
+    "14881": {
+      "id": 14881,
+      "name": "null",
+      "types": [
+        "DECORATIVE"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 2
+      },
+      "occurrences": 2,
+      "sampleWorldX": 3237,
+      "sampleWorldY": 3209,
+      "samplePlane": 0
+    },
+    "16407": {
+      "id": 16407,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3216:3216:2"
+      ],
+      "observedCounts": {
+        "3216:3216:2": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3218,
+      "sampleWorldY": 3220,
+      "samplePlane": 2
+    },
+    "16438": {
+      "id": 16438,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3224:3216:2"
+      ],
+      "observedCounts": {
+        "3224:3216:2": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3224,
+      "sampleWorldY": 3220,
+      "samplePlane": 2
+    },
+    "23590": {
+      "id": 23590,
+      "name": "null",
+      "types": [
+        "GROUND"
+      ],
+      "textureIds": [],
+      "orientations": [],
+      "sightings": [
+        "3232:3208:0"
+      ],
+      "observedCounts": {
+        "3232:3208:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3234,
+      "sampleWorldY": 3214,
+      "samplePlane": 0
+    },
+    "29715": {
+      "id": 29715,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8
+      ],
+      "orientations": [
+        0
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3223,
+      "sampleWorldY": 3220,
+      "samplePlane": 0
+    },
+    "44603": {
+      "id": 44603,
+      "name": "null",
+      "types": [
+        "GAME",
+        "WALL"
+      ],
+      "textureIds": [],
+      "orientations": [
+        0,
+        1,
+        8,
+        512,
+        1536
+      ],
+      "sightings": [
+        "3240:3216:0"
+      ],
+      "observedCounts": {
+        "3240:3216:0": 8
+      },
+      "occurrences": 8,
+      "sampleWorldX": 3242,
+      "sampleWorldY": 3222,
+      "samplePlane": 0
+    },
+    "44782": {
+      "id": 44782,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        8
+      ],
+      "orientations": [
+        1536
+      ],
+      "sightings": [
+        "3216:3216:0"
+      ],
+      "observedCounts": {
+        "3216:3216:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3220,
+      "sampleWorldY": 3220,
+      "samplePlane": 0
+    },
+    "57681": {
+      "id": 57681,
+      "name": "null",
+      "types": [
+        "GAME"
+      ],
+      "textureIds": [
+        2
+      ],
+      "orientations": [
+        1024
+      ],
+      "sightings": [
+        "3216:3200:0"
+      ],
+      "observedCounts": {
+        "3216:3200:0": 1
+      },
+      "occurrences": 1,
+      "sampleWorldX": 3222,
+      "sampleWorldY": 3204,
+      "samplePlane": 0
+    }
+  },
+  "underlays": {
+    "48": {
+      "id": 48,
+      "colorSum": 1653901,
+      "colorSamples": 191,
+      "averagePackedHsl": 8659,
+      "observedTextureIds": [
+        3
+      ],
+      "sightings": [
+        "3216:3200:0",
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0",
+        "3232:3208:0",
+        "3240:3216:0"
+      ],
+      "colorObservations": {
+        "3216:3200": {
+          "sum": 371082,
+          "samples": 24,
+          "textureIds": []
+        },
+        "3216:3208": {
+          "sum": 52398,
+          "samples": 8,
+          "textureIds": []
+        },
+        "3216:3216": {
+          "sum": 340184,
+          "samples": 38,
+          "textureIds": []
+        },
+        "3224:3216": {
+          "sum": 467581,
+          "samples": 61,
+          "textureIds": []
+        },
+        "3232:3208": {
+          "sum": 335536,
+          "samples": 52,
+          "textureIds": [
+            3
+          ]
+        },
+        "3240:3216": {
+          "sum": 87120,
+          "samples": 8,
+          "textureIds": []
+        }
+      }
+    },
+    "54": {
+      "id": 54,
+      "colorSum": 8280225,
+      "colorSamples": 873,
+      "averagePackedHsl": 9484,
+      "observedTextureIds": [
+        3
+      ],
+      "sightings": [
+        "3216:3200:0",
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0",
+        "3232:3208:0",
+        "3240:3216:0"
+      ],
+      "colorObservations": {
+        "3216:3200": {
+          "sum": 3022524,
+          "samples": 226,
+          "textureIds": []
+        },
+        "3216:3208": {
+          "sum": 1017619,
+          "samples": 100,
+          "textureIds": []
+        },
+        "3216:3216": {
+          "sum": 262244,
+          "samples": 69,
+          "textureIds": []
+        },
+        "3224:3216": {
+          "sum": 837166,
+          "samples": 125,
+          "textureIds": []
+        },
+        "3232:3208": {
+          "sum": 1654947,
+          "samples": 195,
+          "textureIds": [
+            3
+          ]
+        },
+        "3240:3216": {
+          "sum": 1485725,
+          "samples": 158,
+          "textureIds": []
+        }
+      }
+    },
+    "96": {
+      "id": 96,
+      "colorSum": 1496164,
+      "colorSamples": 152,
+      "averagePackedHsl": 9843,
+      "observedTextureIds": [],
+      "sightings": [
+        "3216:3208:0",
+        "3216:3216:0"
+      ],
+      "colorObservations": {
+        "3216:3208": {
+          "sum": 1186728,
+          "samples": 119,
+          "textureIds": []
+        },
+        "3216:3216": {
+          "sum": 309436,
+          "samples": 33,
+          "textureIds": []
+        }
+      }
+    }
+  },
+  "overlays": {
+    "7": {
+      "id": 7,
+      "colorSum": 2265464,
+      "colorSamples": 490,
+      "averagePackedHsl": 4623,
+      "observedTextureIds": [
+        1
+      ],
+      "sightings": [
+        "3216:3208:0",
+        "3216:3216:0",
+        "3224:3216:0",
+        "3232:3208:0",
+        "3240:3216:0"
+      ],
+      "colorObservations": {
+        "3216:3208": {
+          "sum": 225889,
+          "samples": 66,
+          "textureIds": []
+        },
+        "3216:3216": {
+          "sum": 997208,
+          "samples": 154,
+          "textureIds": []
+        },
+        "3224:3216": {
+          "sum": 482804,
+          "samples": 111,
+          "textureIds": []
+        },
+        "3232:3208": {
+          "sum": 449598,
+          "samples": 36,
+          "textureIds": []
+        },
+        "3240:3216": {
+          "sum": 109965,
+          "samples": 123,
+          "textureIds": [
+            1
+          ]
+        }
+      }
+    }
+  }
+}

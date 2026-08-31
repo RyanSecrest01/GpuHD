@@ -127,49 +127,6 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
-			keyName = "customFog",
-			name = "Custom fog",
-			description = "Use custom fog settings with custom skies.",
-			position = 6
-	)
-	default boolean customFog()
-	{
-		return true;
-	}
-
-	@Range(
-			min = 0,
-			max = 100
-	)
-
-	@ConfigItem(
-			keyName = "customFogBrightness",
-			name = "Fog brightness",
-			description = "Brightness of the custom fog color.",
-			position = 7
-	)
-	default int customFogBrightness()
-	{
-		return 90;
-	}
-
-	@Range(
-			min = 0,
-			max = 100
-	)
-
-	@ConfigItem(
-			keyName = "customFogStrength",
-			name = "Fog thickness",
-			description = "How aggressively fog hides the distant scene edge.",
-			position = 8
-	)
-	default int customFogStrength()
-	{
-		return 70;
-	}
-
-	@ConfigItem(
 			keyName = "skyMode",
 			name = "Custom Sky",
 			description = "Select the custom skybox to render.",
@@ -528,13 +485,6 @@ public interface GpuPluginConfig extends Config
 		return 25;
 	}
 
-	@Range(min = 0, max = 200)
-	@ConfigItem(keyName = "stormAtmosphereDensity", name = "Storm atmosphere", description = "Controls rolling world-space fog volume density during storms and blizzards. Set to 0 to disable it.", position = 35)
-	default int stormAtmosphereDensity()
-	{
-		return 130;
-	}
-
 	@ConfigItem(keyName = "weatherSounds", name = "Weather sounds", description = "Plays looping rain and synchronized thunder for weather modes.", position = 36)
 	default boolean weatherSounds()
 	{
@@ -563,12 +513,23 @@ public interface GpuPluginConfig extends Config
 	@ConfigItem(
 		keyName = "flowingGrass",
 		name = "Flowing grass",
-		description = "Adds experimental world-space grass clumps with environment-driven wind.",
-		position = 42
+		description = "Adds experimental grass only to explicitly mapped Lumbridge grass underlays 46-50 and 59-64.",
+		position = 40
 	)
 	default boolean flowingGrass()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "grassDebugMode",
+		name = "Grass debug mode",
+		description = "Renders one deterministic grass proof geometry for pipeline testing.",
+		position = 42
+	)
+	default GrassDebugMode grassDebugMode()
+	{
+		return GrassDebugMode.OFF;
 	}
 
 	@Range(min = 10, max = 100)
@@ -605,6 +566,18 @@ public interface GpuPluginConfig extends Config
 	default int grassDistance()
 	{
 		return 12;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "grassSlopeFollow",
+		name = "Grass slope follow",
+		description = "Blends grass orientation between upright and the sampled terrain slope. Global use is enabled after slope-tile validation.",
+		position = 57
+	)
+	default int grassSlopeFollow()
+	{
+		return 50;
 	}
 
 	@ConfigItem(
@@ -734,9 +707,44 @@ public interface GpuPluginConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "directionalLighting",
+		name = "Directional world lighting",
+		description = "Defines opaque surfaces with the active sun or moon direction.",
+		position = 59
+	)
+	default boolean directionalLighting()
+	{
+		return true;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "directionalLightingStrength",
+		name = "Sunlight strength",
+		description = "Controls separation between direct light and shaded surface fill.",
+		position = 60
+	)
+	default int directionalLightingStrength()
+	{
+		return 72;
+	}
+
+	@Range(min = 0, max = 100)
+	@ConfigItem(
+		keyName = "environmentFillStrength",
+		name = "Sky fill",
+		description = "Controls cool environment light retained on shaded faces.",
+		position = 61
+	)
+	default int environmentFillStrength()
+	{
+		return 32;
+	}
+
+	@ConfigItem(
 			keyName = "exportChunkObjectsHotkey",
-			name = "Export chunk objects",
-			description = "Hotkey to export unique object IDs from the current 8x8 chunk.",
+			name = "Export surface catalog",
+			description = "Merge source textures, terrain IDs, and objects from the current 8x8 chunk into the repository master catalog.",
 			position = 100
 	)
 	default Keybind exportChunkObjectsHotkey()
