@@ -1,8 +1,7 @@
 #version 330
 
-// Test 1 vertex path: the imported GLB is already node-transformed and its
-// vertical minimum is normalized to zero by GlbGrassMesh. The only conversion
-// here is glTF Y-up -> RuneLite's downward world-Y axis.
+// The loader has already applied node transforms, normalized the root to zero,
+// and converted glTF Y-up to RuneLite Y-down exactly once.
 layout(location = 0) in vec3 position;
 
 uniform mat4 projection;
@@ -11,9 +10,6 @@ uniform float modelScale;
 
 void main()
 {
-	vec3 worldPosition = baseCenter + vec3(
-		position.x * modelScale,
-		-position.y * modelScale,
-		position.z * modelScale);
+	vec3 worldPosition = baseCenter + position * modelScale;
 	gl_Position = projection * vec4(worldPosition, 1.0);
 }

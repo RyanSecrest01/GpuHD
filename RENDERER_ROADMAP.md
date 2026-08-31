@@ -183,6 +183,16 @@ celestial rays and active weather so foundational quality is measurable.
 - [ ] Add curated wind behavior for foliage, shrubs, flags, sails, and cloth.
 - [ ] Keep buildings, rigid props, characters, and unknown objects unchanged.
 
+### 5C — Asset-Driven Tree Replacements
+
+- [x] Establish exact object-ID mapping, fail-safe visual suppression, shared GLB
+      loading, rooted instancing, RGBA material cutouts, and tree shadow support.
+- [x] Add unified vegetation distance bands, LOD0-LOD3 model slots with shared
+      nearest-asset fallback, deterministic grass thinning, independent tree
+      shadow range/LOD policy, and per-band profiling.
+- [ ] Populate curated tree IDs and licensed GLB assets through visual packages.
+- [ ] Author and measure real LOD1-LOD3 tree assets after the first assets pass QA.
+
 Details receive shadows by default. Adding them to shadow-caster passes requires
 a separate measured package.
 

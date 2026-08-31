@@ -182,9 +182,12 @@ final class GlbGrassMesh
 		float scale = 64.0f / height;
 		float centerX = (minX + maxX) * 0.5f;
 		float centerZ = (minZ + maxZ) * 0.5f;
-		float[] normalizedMin = {(minX - centerX) * scale, 0.0f,
+		// This is the single glTF Y-up -> RuneLite Y-down conversion. The
+		// normalized local mesh is rooted at Y=0 and grows toward negative Y, so
+		// render shaders only scale/yaw it and add the exact terrain anchor.
+		float[] normalizedMin = {(minX - centerX) * scale, -height * scale,
 			(minZ - centerZ) * scale};
-		float[] normalizedMax = {(maxX - centerX) * scale, height * scale,
+		float[] normalizedMax = {(maxX - centerX) * scale, 0.0f,
 			(maxZ - centerZ) * scale};
 		float[] packed = new float[positions.size() * FLOATS_PER_VERTEX];
 		for (int i = 0; i < positions.size(); i++)
@@ -194,10 +197,10 @@ final class GlbGrassMesh
 			float[] uv = uvs.get(i);
 			int at = i * FLOATS_PER_VERTEX;
 			packed[at] = (p[0] - centerX) * scale;
-			packed[at + 1] = (p[1] - minY) * scale;
+			packed[at + 1] = -(p[1] - minY) * scale;
 			packed[at + 2] = (p[2] - centerZ) * scale;
 			packed[at + 3] = n[0];
-			packed[at + 4] = n[1];
+			packed[at + 4] = -n[1];
 			packed[at + 5] = n[2];
 			packed[at + 6] = uv[0];
 			packed[at + 7] = uv[1];

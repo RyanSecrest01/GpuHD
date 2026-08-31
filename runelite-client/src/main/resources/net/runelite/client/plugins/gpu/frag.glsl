@@ -532,54 +532,40 @@ void main()
             discard;
         }
 
-		// Terrain tiles map their texture coordinates from 0..1 independently,
-		// which exposes opposite clamped texture edges at every tile boundary.
-		// Near a land-tile edge, converge onto a world-anchored mirrored sample.
-		// Adjacent tiles then read the same texels at their shared edge while the
-		// center of each tile retains the stock texture detail and orientation.
+		// Stock terrain UVs restart on every paint tile and shaped face. That is
+		// especially obvious where adjacent triangles change height: the texture
+		// phase changes even though the rendered ground is continuous. Blend toward
+		// one world-anchored projection instead. Explicit gradients preserve the
+		// correct mip across the fract() wrap, avoiding a blurred line at tile edges.
+		// Different texture layers remain authoritative material boundaries; this
+		// only makes each resolved layer spatially continuous.
 		if (terrainTextureBlending != 0 && terrainSurface && !waterSurface)
 		{
-			float strength = clamp(terrainBlendStrength, 0.0, 1.0);
-			float featherWidth = mix(0.035, 0.115, strength);
-			float westBlend = (fShoreEdges & 512) != 0
-				? 1.0 - smoothstep(0.012, featherWidth, fTileUv.x) : 0.0;
-			float eastBlend = (fShoreEdges & 1024) != 0
-				? 1.0 - smoothstep(0.012, featherWidth, 1.0 - fTileUv.x) : 0.0;
-			float southBlend = (fShoreEdges & 2048) != 0
-				? 1.0 - smoothstep(0.012, featherWidth, fTileUv.y) : 0.0;
-			float northBlend = (fShoreEdges & 4096) != 0
-				? 1.0 - smoothstep(0.012, featherWidth, 1.0 - fTileUv.y) : 0.0;
-			float horizontalBlend = max(westBlend, eastBlend);
-			float verticalBlend = max(southBlend, northBlend);
-			float edgeBlend = max(horizontalBlend, verticalBlend) * strength;
-
-			if (edgeBlend > 0.0001)
+			// Reach a fully continuous projection at the default 60 setting. A
+			// partial orientation mix is useful only as a short opt-in transition;
+			// lingering there would double-image detailed authored textures.
+			float strength = smoothstep(0.0, 0.6,
+				clamp(terrainBlendStrength, 0.0, 1.0));
+			if (strength > 0.0001)
 			{
-				vec2 worldTile = fWorldPos.xz / 128.0;
-				vec2 worldMirror = vec2(1.0)
-					- abs(mod(worldTile, 2.0) - vec2(1.0));
 				vec2 animationOffset = fUv - fTileUv;
-				vec2 seamUv = fUv;
-				seamUv.x = mix(seamUv.x,
-					worldMirror.x + animationOffset.x,
-					step(0.0001, horizontalBlend));
-				seamUv.y = mix(seamUv.y,
-					worldMirror.y + animationOffset.y,
-					step(0.0001, verticalBlend));
-
-				vec4 seamSample = texture(
+				vec2 worldUv = fWorldPos.xz / 128.0 + animationOffset;
+				// Mirroring makes both sides of every tile boundary meet the same
+				// source edge. A simple repeat would still join texel 255 to texel 0
+				// and leave a line whenever an authored image is not perfectly tiled.
+				vec2 wrappedWorldUv = vec2(1.0)
+					- abs(mod(worldUv, 2.0) - vec2(1.0));
+				vec4 worldSample = textureGrad(
 					textures,
-					vec3(seamUv, float(textureIdx)));
-				float seamAlpha = textureLod(
+					vec3(wrappedWorldUv, float(textureIdx)),
+					dFdx(worldUv), dFdy(worldUv));
+				float worldAlpha = textureLod(
 					textures,
-					vec3(seamUv, float(textureIdx)),
-					0.f).a;
-				if (seamAlpha >= 1.f)
+					vec3(wrappedWorldUv, float(textureIdx)), 0.f).a;
+				if (worldAlpha >= 1.f)
 				{
 					textureColor.rgb = mix(
-						textureColor.rgb,
-						seamSample.rgb,
-						edgeBlend);
+						textureColor.rgb, worldSample.rgb, strength);
 				}
 			}
 		}

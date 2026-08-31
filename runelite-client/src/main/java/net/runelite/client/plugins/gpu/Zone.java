@@ -79,8 +79,19 @@ class Zone
 	float[] surfaceDetailAnchors = new float[0];
 	int[] surfaceDetailLevelOffsets = new int[4];
 	int surfaceDetailVisibleFrame = -1;
+	int surfaceDetailTilesScanned;
+	int surfaceDetailTilesWithUnderlay;
+	int surfaceDetailTilesWithOverlay;
+	int surfaceDetailVegetationTiles;
 	int surfaceDetailEligibleTiles;
 	int surfaceDetailEligibleTriangles;
+	int surfaceDetailGrassRoots;
+
+	// Visual-only GLB tree replacements. RuneScape TileObjects remain in the
+	// scene; these records replace only their uploaded GPU geometry.
+	final List<TreeReplacementInstance> treeReplacements = new ArrayList<>();
+	private final Set<Long> treeReplacementKeys = new java.util.HashSet<>();
+	int treeReplacementVisibleFrame = -1;
 
 	// Water remains in the zone's compact terrain VBO, but these ranges let the
 	// dedicated post-opaque pass draw only water triangles without duplicating
@@ -150,14 +161,37 @@ class Zone
 		surfaceDetailAnchors = new float[0];
 		Arrays.fill(surfaceDetailLevelOffsets, 0);
 		surfaceDetailVisibleFrame = -1;
+		surfaceDetailTilesScanned = 0;
+		surfaceDetailTilesWithUnderlay = 0;
+		surfaceDetailTilesWithOverlay = 0;
+		surfaceDetailVegetationTiles = 0;
 		surfaceDetailEligibleTiles = 0;
 		surfaceDetailEligibleTriangles = 0;
+		surfaceDetailGrassRoots = 0;
+		treeReplacements.clear();
+		treeReplacementKeys.clear();
+		treeReplacementVisibleFrame = -1;
 		waterStarts = new int[0];
 		waterEnds = new int[0];
 		waterRoofIds = new int[0];
 		waterLevels = new byte[0];
 		waterRangeCount = 0;
 		waterVisibleFrame = -1;
+	}
+
+	void addTreeReplacement(int definition, int objectId, int x, int y, int z,
+		int orientation, int roofId, int level, float seed)
+	{
+		long key = ((long) definition & 0xffffL) << 48
+			| ((long) objectId & 0xffffL) << 32
+			| ((long) x & 0xffffL) << 16
+			| (long) z & 0xffffL;
+		if (!treeReplacementKeys.add(key))
+		{
+			return;
+		}
+		treeReplacements.add(new TreeReplacementInstance(definition, objectId,
+			x, y, z, orientation, roofId, level, seed));
 	}
 
 	void unmap()
@@ -594,6 +628,33 @@ class Zone
 		boolean isTemp()
 		{
 			return packedFaces == null;
+		}
+	}
+
+	static final class TreeReplacementInstance
+	{
+		final int definition;
+		final int objectId;
+		final int x;
+		final int y;
+		final int z;
+		final int orientation;
+		final int roofId;
+		final int level;
+		final float seed;
+
+		private TreeReplacementInstance(int definition, int objectId,
+			int x, int y, int z, int orientation, int roofId, int level, float seed)
+		{
+			this.definition = definition;
+			this.objectId = objectId;
+			this.x = x;
+			this.y = y;
+			this.z = z;
+			this.orientation = orientation;
+			this.roofId = roofId;
+			this.level = level;
+			this.seed = seed;
 		}
 	}
 

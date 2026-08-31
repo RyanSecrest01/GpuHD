@@ -1,0 +1,64 @@
+{
+  "trees": {
+    "common-tree": {
+      "objectIds": [],
+      "lod0": "common-tree/tree_lod0.glb",
+      "lod1": "common-tree/tree_lod1.glb",
+      "lod2": "common-tree/tree_lod2.glb",
+      "lod3": "common-tree/tree_lod3.glb"
+    },
+    "oak": {
+      "objectIds": [10820, 1278],
+      "auxiliaryObjectIds": [4735, 4736],
+      "auxiliaryRadius": 4,
+      "lod0": "oak/oak_lod0.glb",
+      "lod1": "oak/oak_lod1.glb",
+      "lod2": "oak/oak_lod2.glb",
+      "lod3": "oak/oak_lod3.glb",
+      "scale": 18.0,
+      "randomYaw": false,
+      "windStrength": 1.0,
+      "materialOverrides": {
+        "leaf-removebg-preview": {
+          "texture": "oak_leaf.png",
+          "alphaCutoff": 0.45,
+          "windResponse": 1.0
+        },
+        "texturehaven/Rough_Wood/1k__JPG__2.8_MB": {
+          "texture": "oak_bark.png",
+          "windResponse": 0.08
+        },
+        "twig": {
+          "texture": "oak_twig.png",
+          "windResponse": 0.42
+        },
+        "None": {
+          "texture": "oak_bark.png",
+          "windResponse": 0.08
+        }
+      }
+    },
+    "willow": {
+      "objectIds": [],
+      "lod0": "willow/willow.glb",
+      "lod1": "willow/willow_lod1.glb",
+      "lod2": "willow/willow_lod2.glb",
+      "lod3": "willow/willow_lod3.glb"
+    },
+    "yew": {
+      "objectIds": [],
+      "lod0": "yew/yew.glb",
+      "lod1": "yew/yew_lod1.glb",
+      "lod2": "yew/yew_lod2.glb",
+      "lod3": "yew/yew_lod3.glb"
+    },
+    "dead": {
+      "objectIds": [],
+      "lod0": "dead/dead-tree.glb",
+      "lod1": "dead/dead-tree_lod1.glb",
+      "lod2": "dead/dead-tree_lod2.glb",
+      "lod3": "dead/dead-tree_lod3.glb"
+    }
+  },
+  "coordinateOverrides": []
+}

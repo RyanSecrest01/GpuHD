@@ -512,7 +512,7 @@ public interface GpuPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "flowingGrass",
-		name = "Flowing grass",
+		name = "3D grass",
 		description = "Adds experimental grass only to explicitly mapped Lumbridge grass underlays 46-50 and 59-64.",
 		position = 40
 	)
@@ -556,35 +556,22 @@ public interface GpuPluginConfig extends Config
 		return 100;
 	}
 
-	@Range(min = 6, max = 18)
 	@ConfigItem(
-		keyName = "grassDistance",
-		name = "Grass distance",
-		description = "Maximum grass render distance around the player, in tiles.",
-		position = 45
+		keyName = "hdGroundTextures",
+		name = "HD ground tiles",
+		description = "Uses exact authored underlay and overlay textures when available.",
+		position = 46
 	)
-	default int grassDistance()
+	default boolean hdGroundTextures()
 	{
-		return 12;
-	}
-
-	@Range(min = 0, max = 100)
-	@ConfigItem(
-		keyName = "grassSlopeFollow",
-		name = "Grass slope follow",
-		description = "Blends grass orientation between upright and the sampled terrain slope. Global use is enabled after slope-tile validation.",
-		position = 57
-	)
-	default int grassSlopeFollow()
-	{
-		return 50;
+		return true;
 	}
 
 	@ConfigItem(
 		keyName = "terrainTextureBlending",
-		name = "Terrain texture blending",
-		description = "Experimentally feathers compatible ground textures and colors across tile borders.",
-		position = 46
+		name = "Blend ground tiles",
+		description = "Uses stable world-space ground mapping to remove seams across tiles, shaped faces, and slopes.",
+		position = 47
 	)
 	default boolean terrainTextureBlending()
 	{
@@ -594,9 +581,9 @@ public interface GpuPluginConfig extends Config
 	@Range(min = 0, max = 100)
 	@ConfigItem(
 		keyName = "terrainBlendStrength",
-		name = "Terrain blend strength",
-		description = "Controls how strongly compatible terrain is blended across tile borders.",
-		position = 47
+		name = "Ground blend strength",
+		description = "Controls the transition from stock per-tile mapping to continuous world-space ground mapping.",
+		position = 48
 	)
 	default int terrainBlendStrength()
 	{
@@ -607,7 +594,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "terrainDetail",
 		name = "3D ground details",
 		description = "Adds real, light-reactive pebbles, sand fragments, and dirt clods to eligible ground materials.",
-		position = 48
+		position = 49
 	)
 	default boolean terrainDetail()
 	{
@@ -619,7 +606,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "terrainDetailStrength",
 		name = "Ground detail density",
 		description = "Controls how many eligible pebble, sand, and dirt detail clusters are rendered.",
-		position = 49
+		position = 50
 	)
 	default int terrainDetailStrength()
 	{
@@ -631,7 +618,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "terrainDetailDistance",
 		name = "Ground detail distance",
 		description = "Maximum 3D ground-detail render distance around the player, in tiles.",
-		position = 50
+		position = 51
 	)
 	default int terrainDetailDistance()
 	{
@@ -642,7 +629,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialDebugMode",
 		name = "Material debug",
 		description = "Visualizes explicit material tags or grass, stone, sand, and dirt candidates for 3D details.",
-		position = 51
+		position = 52
 	)
 	default MaterialDebugMode materialDebugMode()
 	{
@@ -653,7 +640,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialInspector",
 		name = "Material inspector",
 		description = "Shows the hovered tile's material, source rule, terrain IDs, textures, and object IDs for renderer development.",
-		position = 52
+		position = 53
 	)
 	default boolean materialInspector()
 	{
@@ -664,7 +651,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialLighting",
 		name = "Material lighting",
 		description = "Lets tagged grass, stone, sand, wood, metal, foliage, and dirt respond naturally to the active sun or moon.",
-		position = 53
+		position = 54
 	)
 	default boolean materialLighting()
 	{
@@ -676,7 +663,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "materialLightingStrength",
 		name = "Material response",
 		description = "Controls the strength of material-specific highlights and surface response without relighting untagged geometry.",
-		position = 54
+		position = 55
 	)
 	default int materialLightingStrength()
 	{
@@ -687,7 +674,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "wetSurfaces",
 		name = "Wet surfaces",
 		description = "Lets rain and storms darken and add restrained reflections to eligible ground materials.",
-		position = 55
+		position = 56
 	)
 	default boolean wetSurfaces()
 	{
@@ -699,7 +686,7 @@ public interface GpuPluginConfig extends Config
 		keyName = "wetSurfaceStrength",
 		name = "Wet surface strength",
 		description = "Controls the rain-driven darkening and reflected-light response of wet surfaces.",
-		position = 56
+		position = 57
 	)
 	default int wetSurfaceStrength()
 	{
@@ -739,6 +726,108 @@ public interface GpuPluginConfig extends Config
 	default int environmentFillStrength()
 	{
 		return 32;
+	}
+
+	@ConfigItem(
+		keyName = "treeOcclusion",
+		name = "Tree occlusion",
+		description = "Adaptively fades replacement-tree foliage using camera pitch and the player sight line.",
+		position = 62
+	)
+	default TreeOcclusionMode treeOcclusion()
+	{
+		return TreeOcclusionMode.STRONG;
+	}
+
+	@ConfigItem(
+		keyName = "treeOcclusionDebug",
+		name = "Tree occlusion debug",
+		description = "Draws the player bubble and camera sight-cone volumes for visual verification.",
+		position = 63
+	)
+	default boolean treeOcclusionDebug()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "renderTreeFoliage",
+		name = "Render tree foliage",
+		description = "Temporary profiler control for replacement-tree leaf geometry.",
+		position = 64
+	)
+	default boolean renderTreeFoliage()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "renderTreeTrunks",
+		name = "Render tree trunks",
+		description = "Temporary profiler control for replacement-tree bark and twig geometry.",
+		position = 65
+	)
+	default boolean renderTreeTrunks()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "treeShadows",
+		name = "Tree shadows",
+		description = "Temporary profiler control for replacement trees in the shadow map.",
+		position = 66
+	)
+	default boolean treeShadows()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "treeRenderProfiling",
+		name = "Tree render profiling",
+		description = "Logs concise per-frame tree, foliage, shadow, and grass workload counters once per second.",
+		position = 67
+	)
+	default boolean treeRenderProfiling()
+	{
+		return true;
+	}
+
+	@Range(min = 4, max = 16)
+	@ConfigItem(
+		keyName = "vegetationNearDistance",
+		name = "Vegetation near band",
+		description = "Full-detail tree, grass, and vegetation-shadow distance in tiles.",
+		position = 68
+	)
+	default int vegetationNearDistance()
+	{
+		return 8;
+	}
+
+	@Range(min = 8, max = 28)
+	@ConfigItem(
+		keyName = "vegetationMidDistance",
+		name = "Vegetation mid band",
+		description = "LOD1 tree and reduced-density grass boundary in tiles.",
+		position = 69
+	)
+	default int vegetationMidDistance()
+	{
+		return 16;
+	}
+
+	@Range(min = 16, max = 45)
+	@ConfigItem(
+		keyName = "vegetationFarDistance",
+		name = "Vegetation far band",
+		description = "LOD2 boundary and complete 3D-grass cutoff in tiles.",
+		position = 70
+	)
+	default int vegetationFarDistance()
+	{
+		return 28;
 	}
 
 	@ConfigItem(

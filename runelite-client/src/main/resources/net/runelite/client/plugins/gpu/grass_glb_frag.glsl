@@ -22,13 +22,6 @@ flat in float fDistanceFade;
 
 out vec4 FragColor;
 
-float coverage()
-{
-	float side = 1.0 - smoothstep(0.94, 1.0, abs(fDetailUv.x * 2.0 - 1.0));
-	float tip = 1.0 - smoothstep(0.78, 1.0, fDetailUv.y);
-	return side * tip;
-}
-
 float receiveShadow()
 {
 	if (shadowsEnabled == 0) return 0.0;
@@ -47,7 +40,9 @@ void main()
 		FragColor = vec4(1.0, 0.08, 0.85, 1.0);
 		return;
 	}
-	if (coverage() < 0.22 || fDistanceFade < 0.02) discard;
+	// The imported GLB already contains complete blade silhouettes. Its UVs are
+	// not the procedural ribbon coordinates used by the old generated blades.
+	if (fDistanceFade < 0.02) discard;
 	vec3 n = normalize(fDetailNormal);
 	vec3 l = normalize(lightDirection);
 	float direct = max(dot(n, l), 0.0);

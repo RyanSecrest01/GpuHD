@@ -49,7 +49,11 @@ import net.runelite.client.callback.RenderCallbackManager;
 @Slf4j
 class SceneUploader
 {
-	private static final int SURFACE_DETAIL_ANCHOR_STRIDE = 9;
+	private static final int SURFACE_DETAIL_ANCHOR_STRIDE = 6;
+	private static final int GRASS_STAT_VEGETATION_TILES = 0;
+	private static final int GRASS_STAT_ELIGIBLE_TILES = 1;
+	private static final int GRASS_STAT_ELIGIBLE_TRIANGLES = 2;
+	private static final int GRASS_STAT_ROOTS = 3;
 	// A shaped tile can contain every supported detail material. Candidate
 	// Dense production grass uses 36--48 anchors per eligible tile. The remaining
 	// scatter types fit within the same bounded per-tile storage.
@@ -160,12 +164,15 @@ class SceneUploader
 
 	private final RenderCallbackManager renderCallbackManager;
 	private final GpuPluginConfig config;
+	private final TreeReplacementRegistry treeReplacementRegistry;
 	private int basex, basez, rid, level;
 
-	SceneUploader(RenderCallbackManager renderCallbackManager, GpuPluginConfig config)
+	SceneUploader(RenderCallbackManager renderCallbackManager, GpuPluginConfig config,
+		TreeReplacementRegistry treeReplacementRegistry)
 	{
 		this.renderCallbackManager = renderCallbackManager;
 		this.config = config;
+		this.treeReplacementRegistry = treeReplacementRegistry;
 		modelLocalXI = new int[ModelUploader.MAX_VERTEX_COUNT];
 		modelLocalYI = new int[ModelUploader.MAX_VERTEX_COUNT];
 		modelLocalZI = new int[ModelUploader.MAX_VERTEX_COUNT];
@@ -267,8 +274,10 @@ class SceneUploader
 		float[] anchors = new float[8 * 8 * MAX_SURFACE_DETAIL_ANCHORS_PER_TILE
 			* SURFACE_DETAIL_ANCHOR_STRIDE];
 		int writeOffset = 0;
-		int eligibleTiles = 0;
-		int eligibleTriangles = 0;
+		int tilesScanned = 0;
+		int tilesWithUnderlay = 0;
+		int tilesWithOverlay = 0;
+		int[] grassStats = new int[4];
 
 		for (int level = 0; level < 4; ++level)
 		{
@@ -291,6 +300,19 @@ class SceneUploader
 					{
 						continue;
 					}
+					tilesScanned++;
+					int underlayId = decodeTerrainDefinitionId(
+						underlays[level][sceneX][sceneZ]);
+					int overlayId = decodeTerrainDefinitionId(
+						overlays[level][sceneX][sceneZ]);
+					if (underlayId >= 0)
+					{
+						tilesWithUnderlay++;
+					}
+					if (overlayId >= 0)
+					{
+						tilesWithOverlay++;
+					}
 
 					int heightLevel = tile.getRenderLevel();
 					int tileFlags = tileSettings[level][sceneX][sceneZ] & 0xff;
@@ -305,11 +327,6 @@ class SceneUploader
 						continue;
 					}
 
-					int underlayId = decodeTerrainDefinitionId(
-						underlays[level][sceneX][sceneZ]);
-					int overlayId = decodeTerrainDefinitionId(
-						overlays[level][sceneX][sceneZ]);
-
 					int swHeight = tileHeights[heightLevel][sceneX][sceneZ];
 					int seHeight = tileHeights[heightLevel][sceneX + 1][sceneZ];
 					int neHeight = tileHeights[heightLevel][sceneX + 1][sceneZ + 1];
@@ -322,13 +339,22 @@ class SceneUploader
 						SurfaceDetailMaterial material = surfaceMaterial(
 							paint, underlayId, overlayId,
 							worldTileX, worldTileZ, level);
+						boolean vegetationEnabled = material != null
+							&& material.type == SURFACE_DETAIL_GRASS;
+						if (vegetationEnabled)
+						{
+							grassStats[GRASS_STAT_VEGETATION_TILES]++;
+						}
 						int minHeight = Math.min(Math.min(swHeight, seHeight), Math.min(neHeight, nwHeight));
 						int maxHeight = Math.max(Math.max(swHeight, seHeight), Math.max(neHeight, nwHeight));
 						if (material != null
 							&& maxHeight - minHeight <= surfaceDetailMaxSlope(material.type))
 						{
-							eligibleTiles++;
-							eligibleTriangles += 2;
+							if (vegetationEnabled)
+							{
+								grassStats[GRASS_STAT_ELIGIBLE_TILES]++;
+								grassStats[GRASS_STAT_ELIGIBLE_TRIANGLES] += 2;
+							}
 							int anchorCount = surfaceAnchorCount(material.type,
 								worldTileX, worldTileZ);
 							for (int anchor = 0; anchor < anchorCount; ++anchor)
@@ -344,14 +370,16 @@ class SceneUploader
 								float tileZ = sample[1];
 								float height = paintHeight(tileX, tileZ,
 									swHeight, seHeight, neHeight, nwHeight);
-								float[] normal = paintNormal(tileX, tileZ,
-									swHeight, seHeight, neHeight, nwHeight);
 								writeOffset = putSurfaceDetailAnchor(anchors, writeOffset,
 									(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
 									height,
 									(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
 									surfaceGeometrySeed(worldTileX, worldTileZ, level,
-										material.type, anchor), material, normal);
+										material.type, anchor), material);
+								if (vegetationEnabled)
+								{
+									grassStats[GRASS_STAT_ROOTS]++;
+								}
 							}
 						}
 					}
@@ -362,7 +390,7 @@ class SceneUploader
 						{
 							writeOffset = appendModelSurfaceDetails(anchors, writeOffset,
 								model, xoff, zoff, worldTileX, worldTileZ, level,
-								underlayId, overlayId);
+								underlayId, overlayId, grassStats);
 						}
 					}
 				}
@@ -372,14 +400,19 @@ class SceneUploader
 		}
 
 		zone.surfaceDetailAnchors = Arrays.copyOf(anchors, writeOffset);
-		zone.surfaceDetailEligibleTiles = eligibleTiles;
-		zone.surfaceDetailEligibleTriangles = eligibleTriangles;
+		zone.surfaceDetailTilesScanned = tilesScanned;
+		zone.surfaceDetailTilesWithUnderlay = tilesWithUnderlay;
+		zone.surfaceDetailTilesWithOverlay = tilesWithOverlay;
+		zone.surfaceDetailVegetationTiles = grassStats[GRASS_STAT_VEGETATION_TILES];
+		zone.surfaceDetailEligibleTiles = grassStats[GRASS_STAT_ELIGIBLE_TILES];
+		zone.surfaceDetailEligibleTriangles = grassStats[GRASS_STAT_ELIGIBLE_TRIANGLES];
+		zone.surfaceDetailGrassRoots = grassStats[GRASS_STAT_ROOTS];
 	}
 
 	private static int appendModelSurfaceDetails(float[] anchors, int writeOffset,
 		SceneTileModel model, int xoff, int zoff,
 		int worldTileX, int worldTileZ, int level,
-		int underlayId, int overlayId)
+		int underlayId, int overlayId, int[] grassStats)
 	{
 		int[] faceX = model.getFaceX();
 		int[] faceY = model.getFaceY();
@@ -397,6 +430,8 @@ class SceneUploader
 		int[] detailTypes = new int[faceCount];
 		Arrays.fill(detailTypes, SURFACE_DETAIL_NONE);
 		boolean[] sampleable = new boolean[faceCount];
+		boolean vegetationEnabled = false;
+		boolean vegetationEligible = false;
 
 		for (int face = 0; face < faceCount; ++face)
 		{
@@ -428,13 +463,26 @@ class SceneUploader
 			SurfaceDetailMaterial material = surfaceMaterial(model, face,
 				texture, hslA, hslB, hslC, underlayId, overlayId,
 				worldTileX, worldTileZ, level);
+			if (material != null && material.type == SURFACE_DETAIL_GRASS)
+			{
+				vegetationEnabled = true;
+			}
 			if (material != null
 				&& maxHeight - minHeight <= surfaceDetailMaxSlope(material.type))
 			{
 				materials[face] = material;
 				detailTypes[face] = material.type;
 				sampleable[face] = true;
+				if (material.type == SURFACE_DETAIL_GRASS)
+				{
+					vegetationEligible = true;
+					grassStats[GRASS_STAT_ELIGIBLE_TRIANGLES]++;
+				}
 			}
+		}
+		if (vegetationEnabled)
+		{
+			grassStats[GRASS_STAT_VEGETATION_TILES]++;
 		}
 
 		int tileBaseX = modelTileBase(vertexX);
@@ -465,15 +513,21 @@ class SceneUploader
 
 				float height = modelFaceHeight(sampleX, sampleZ, face,
 					faceX, faceY, faceZ, vertexX, vertexY, vertexZ);
-				float[] normal = modelFaceNormal(face, faceX, faceY, faceZ,
-					vertexX, vertexY, vertexZ);
 				writeOffset = putSurfaceDetailAnchor(anchors, writeOffset,
 					(xoff + tileX) * Perspective.LOCAL_TILE_SIZE,
 					height,
 					(zoff + tileZ) * Perspective.LOCAL_TILE_SIZE,
 					surfaceGeometrySeed(worldTileX, worldTileZ, level,
-						type, anchor), materials[face], normal);
+						type, anchor), materials[face]);
+				if (type == SURFACE_DETAIL_GRASS)
+				{
+					grassStats[GRASS_STAT_ROOTS]++;
+				}
 			}
+		}
+		if (vegetationEligible)
+		{
+			grassStats[GRASS_STAT_ELIGIBLE_TILES]++;
 		}
 		return writeOffset;
 	}
@@ -702,65 +756,8 @@ class SceneUploader
 			+ (seHeight - neHeight) * (1.0f - tileZ);
 	}
 
-	private static float[] paintNormal(float tileX, float tileZ,
-		int swHeight, int seHeight, int neHeight, int nwHeight)
-	{
-		float tile = Perspective.LOCAL_TILE_SIZE;
-		if (tileX + tileZ <= 1.0f)
-		{
-			return triangleNormal(0.0f, swHeight, 0.0f,
-				tile, seHeight, 0.0f,
-				0.0f, nwHeight, tile);
-		}
-		return triangleNormal(tile, neHeight, tile,
-			0.0f, nwHeight, tile,
-			tile, seHeight, 0.0f);
-	}
-
-	private static float[] modelFaceNormal(int face, int[] faceX, int[] faceY,
-		int[] faceZ, int[] vertexX, int[] vertexY, int[] vertexZ)
-	{
-		int a = faceX[face];
-		int b = faceY[face];
-		int c = faceZ[face];
-		return triangleNormal(vertexX[a], vertexY[a], vertexZ[a],
-			vertexX[b], vertexY[b], vertexZ[b],
-			vertexX[c], vertexY[c], vertexZ[c]);
-	}
-
-	/** Returns an upward-facing normal in GPU world axes (Y points down). */
-	private static float[] triangleNormal(float ax, float ay, float az,
-		float bx, float by, float bz, float cx, float cy, float cz)
-	{
-		float ex = bx - ax;
-		float ey = -(by - ay);
-		float ez = bz - az;
-		float fx = cx - ax;
-		float fy = -(cy - ay);
-		float fz = cz - az;
-		float nx = ey * fz - ez * fy;
-		float ny = ez * fx - ex * fz;
-		float nz = ex * fy - ey * fx;
-		float length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
-		if (length <= 0.0001f)
-		{
-			return new float[]{0.0f, -1.0f, 0.0f};
-		}
-		nx /= length;
-		ny /= length;
-		nz /= length;
-		if (ny > 0.0f)
-		{
-			nx = -nx;
-			ny = -ny;
-			nz = -nz;
-		}
-		return new float[]{nx, ny, nz};
-	}
-
 	private static int putSurfaceDetailAnchor(float[] anchors, int writeOffset,
-		float x, float y, float z, float geometrySeed, SurfaceDetailMaterial material,
-		float[] normal)
+		float x, float y, float z, float geometrySeed, SurfaceDetailMaterial material)
 	{
 		anchors[writeOffset++] = x;
 		anchors[writeOffset++] = y;
@@ -768,9 +765,6 @@ class SceneUploader
 		anchors[writeOffset++] = geometrySeed;
 		anchors[writeOffset++] = material.packedHsl;
 		anchors[writeOffset++] = material.type;
-		anchors[writeOffset++] = normal[0];
-		anchors[writeOffset++] = normal[1];
-		anchors[writeOffset++] = normal[2];
 		return writeOffset;
 	}
 
@@ -1483,6 +1477,31 @@ class SceneUploader
 			tileObject.getX() >> 7, sceneOffset);
 		int objectWorldY = sceneToWorldTile(scene.getBaseY(),
 			tileObject.getY() >> 7, sceneOffset);
+		TreeReplacementRegistry.Definition auxiliaryTree = treeReplacementRegistry == null
+			|| scene.getWorldViewId() != WorldView.TOPLEVEL
+			? null : treeReplacementRegistry.resolveAuxiliary(tileObject.getId());
+		if (auxiliaryTree != null && hasNearbyTreePrimary(scene, tileObject, auxiliaryTree))
+		{
+			// This is visual companion geometry (for example the stock foliage
+			// tiles around an oak), not the authoritative game object. Keep it in
+			// the scene while omitting only its uploaded model.
+			return;
+		}
+		TreeReplacementRegistry.Definition treeReplacement = treeReplacementRegistry == null
+			|| scene.getWorldViewId() != WorldView.TOPLEVEL
+			? null : treeReplacementRegistry.resolve(tileObject.getId(), objectWorldX,
+				objectWorldY, tileObject.getPlane());
+		if (treeReplacement != null)
+		{
+			int hash = tileObject.getId() * 0x1f1f1f1f
+				^ objectWorldX * 0x45d9f3b ^ objectWorldY * 0x119de1f3
+				^ tileObject.getPlane() * 0x27d4eb2d;
+			hash ^= hash >>> 16;
+			float seed = (hash & 0x00ffffff) / 16777216.0f;
+			zone.addTreeReplacement(treeReplacement.index, tileObject.getId(),
+				x - basex, y, z - basez, orient, rid, level, seed);
+			return;
+		}
 		int pos = zone.vboA != null ? zone.vboA.vb.position() : 0;
 		Model model = null;
 		if (r instanceof Model)
@@ -1522,6 +1541,60 @@ class SceneUploader
 				lx, lz, ux, uz,
 				rid, level, tileObject.getId());
 		}
+	}
+
+	private static boolean hasNearbyTreePrimary(Scene scene, TileObject auxiliary,
+		TreeReplacementRegistry.Definition definition)
+	{
+		Tile[][][] tiles = scene.getExtendedTiles();
+		int plane = auxiliary.getPlane();
+		if (plane < 0 || plane >= tiles.length)
+		{
+			return false;
+		}
+		int centerX = auxiliary.getX() >> 7;
+		int centerZ = auxiliary.getY() >> 7;
+		int radius = definition.auxiliaryRadius;
+		for (int x = Math.max(0, centerX - radius);
+			x <= Math.min(tiles[plane].length - 1, centerX + radius); ++x)
+		{
+			for (int z = Math.max(0, centerZ - radius);
+				z <= Math.min(tiles[plane][x].length - 1, centerZ + radius); ++z)
+			{
+				if (tileContainsTreePrimary(tiles[plane][x][z], definition))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static boolean tileContainsTreePrimary(Tile tile,
+		TreeReplacementRegistry.Definition definition)
+	{
+		if (tile == null)
+		{
+			return false;
+		}
+		WallObject wall = tile.getWallObject();
+		DecorativeObject decoration = tile.getDecorativeObject();
+		GroundObject ground = tile.getGroundObject();
+		if (wall != null && definition.matchesPrimaryObject(wall.getId())
+			|| decoration != null && definition.matchesPrimaryObject(decoration.getId())
+			|| ground != null && definition.matchesPrimaryObject(ground.getId()))
+		{
+			return true;
+		}
+		for (GameObject gameObject : tile.getGameObjects())
+		{
+			if (gameObject != null && definition.matchesPrimaryObject(gameObject.getId()))
+			{
+				return true;
+			}
+		}
+		return tile.getBridge() != null
+			&& tileContainsTreePrimary(tile.getBridge(), definition);
 	}
 
 	private int upload(Scene scene, Tile sceneTile, SceneTilePaint tile,
@@ -1605,22 +1678,23 @@ class SceneUploader
 			shoreEdges |= waterShoreMask(scene, storagePlane,
 				sceneTile.getRenderLevel(), tileX, tileY);
 		}
-		else if (tile.getTexture() >= 0)
+		else if (tile.getTexture() >= 0 || terrainAsset != null)
 		{
 			int plane = sceneTile.getPlane();
-			int material = terrainMaterialSignature(scene, plane, tileX, tileY);
+			int effectiveTexture = terrainAsset == null
+				? tile.getTexture() : terrainAsset.getLayer();
 			Tile[][][] tiles = scene.getExtendedTiles();
-			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
-				tileX - 1, tileY, sceneTile, tile.getTexture(), material) != null
+			shoreEdges |= getTerrainTextureBlendNeighbor(scene, tiles, plane,
+				tileX - 1, tileY, sceneTile, effectiveTexture) != null
 				? TERRAIN_BLEND_WEST : 0;
-			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
-				tileX + 1, tileY, sceneTile, tile.getTexture(), material) != null
+			shoreEdges |= getTerrainTextureBlendNeighbor(scene, tiles, plane,
+				tileX + 1, tileY, sceneTile, effectiveTexture) != null
 				? TERRAIN_BLEND_EAST : 0;
-			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
-				tileX, tileY - 1, sceneTile, tile.getTexture(), material) != null
+			shoreEdges |= getTerrainTextureBlendNeighbor(scene, tiles, plane,
+				tileX, tileY - 1, sceneTile, effectiveTexture) != null
 				? TERRAIN_BLEND_SOUTH : 0;
-			shoreEdges |= getTerrainBlendNeighbor(scene, tiles, plane,
-				tileX, tileY + 1, sceneTile, tile.getTexture(), material) != null
+			shoreEdges |= getTerrainTextureBlendNeighbor(scene, tiles, plane,
+				tileX, tileY + 1, sceneTile, effectiveTexture) != null
 				? TERRAIN_BLEND_NORTH : 0;
 		}
 		vertexBuffer.put22224(lx2, ly2, lz2, hsl2);
@@ -1888,6 +1962,40 @@ class SceneUploader
 				|| terrainMaterialSignature(scene, plane, tileX, tileY) == material)
 			? neighbor
 			: null;
+	}
+
+	private Tile getTerrainTextureBlendNeighbor(Scene scene, Tile[][][] tiles,
+		int plane, int tileX, int tileY, Tile current, int effectiveTexture)
+	{
+		if (plane < 0 || plane >= tiles.length
+			|| tileX < 0 || tileX >= tiles[plane].length
+			|| tileY < 0 || tileY >= tiles[plane][tileX].length)
+		{
+			return null;
+		}
+		Tile neighbor = tiles[plane][tileX][tileY];
+		if (neighbor == null || neighbor == current
+			|| neighbor.getRenderLevel() != current.getRenderLevel())
+		{
+			return null;
+		}
+		SceneTilePaint paint = neighbor.getSceneTilePaint();
+		if (paint == null || isWaterTexture(paint.getTexture()))
+		{
+			return null;
+		}
+		int terrainPlane = neighbor.getRenderLevel();
+		int underlayId = decodeTerrainDefinitionId(
+			scene.getUnderlayIds()[terrainPlane][tileX][tileY]);
+		int overlayId = decodeTerrainDefinitionId(
+			scene.getOverlayIds()[terrainPlane][tileX][tileY]);
+		int terrainLayer = paintTerrainLayer(underlayId, overlayId);
+		int definitionId = terrainLayer == TERRAIN_LAYER_OVERLAY
+			? overlayId : underlayId;
+		HdTextureRegistry.Asset asset = exactTerrainAsset(
+			paint.getTexture(), terrainLayer, definitionId);
+		int neighborTexture = asset == null ? paint.getTexture() : asset.getLayer();
+		return neighborTexture == effectiveTexture ? neighbor : null;
 	}
 
 	private static int terrainMaterialSignature(Scene scene, int plane, int tileX, int tileY)
@@ -2891,9 +2999,13 @@ class SceneUploader
 		return len;
 	}
 
-	private static HdTextureRegistry.Asset exactTerrainAsset(
+	private HdTextureRegistry.Asset exactTerrainAsset(
 		int textureId, int terrainLayer, int definitionId)
 	{
+		if (!config.hdGroundTextures())
+		{
+			return null;
+		}
 		HdTextureRegistry registry = HdTextureRegistry.get();
 		if (isWaterTexture(textureId)
 			|| textureId >= 0 && registry.getVanilla(textureId) != null)

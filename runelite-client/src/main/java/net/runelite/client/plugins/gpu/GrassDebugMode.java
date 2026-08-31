@@ -16,7 +16,7 @@ public enum GrassDebugMode
 	GLB_TERRAIN,
 	GLB_TERRAIN_ALL,
 	GLB_CLUMP_NO_DEPTH,
-	GLB_SLOPE_TEST;
+	GLB_ROOT_MARKERS;
 
 	@Override
 	public String toString()
@@ -31,6 +31,6 @@ public enum GrassDebugMode
 								: this == GLB_TERRAIN ? "GLB one terrain tile"
 									: this == GLB_TERRAIN_ALL ? "GLB all grass terrain"
 										: this == GLB_CLUMP_NO_DEPTH ? "GLB clump no depth"
-											: this == GLB_SLOPE_TEST ? "GLB sloped tile test" : "Off";
+											: this == GLB_ROOT_MARKERS ? "GLB terrain + root markers" : "Off";
 	}
 }

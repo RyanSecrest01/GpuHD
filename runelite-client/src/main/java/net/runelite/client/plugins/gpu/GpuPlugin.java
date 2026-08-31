@@ -44,6 +44,7 @@ import net.runelite.client.input.KeyManager;
 import net.runelite.client.util.HotkeyListener;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -63,7 +64,10 @@ import net.runelite.api.Perspective;
 import net.runelite.api.Projection;
 import net.runelite.api.Renderable;
 import net.runelite.api.Scene;
+import net.runelite.api.SceneTileModel;
+import net.runelite.api.SceneTilePaint;
 import net.runelite.api.TextureProvider;
+import net.runelite.api.Tile;
 import net.runelite.api.TileObject;
 import net.runelite.api.WorldEntity;
 import net.runelite.api.WorldView;
@@ -122,7 +126,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private static final int UNIFORM_BUFFER_SIZE = 5 * Float.BYTES;
 	private static final int NUM_ZONES = Constants.EXTENDED_SCENE_SIZE >> 3;
 	private static final int MAX_WORLDVIEWS = 4096;
-	private static final int SURFACE_DETAIL_INSTANCE_FLOATS = 9;
+	private static final int SURFACE_DETAIL_INSTANCE_FLOATS = 6;
 	// Ten two-segment grass blades (120 vertices). Scatter details use the first
 	// 60 vertices of the same instanced mesh and discard the remainder in GLSL.
 	private static final int SURFACE_DETAIL_VERTICES_PER_INSTANCE = 120;
@@ -220,9 +224,18 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	static final Shader GRASS_GLB_DEBUG_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "grass_glb_debug_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "grass_debug_frag.glsl");
+	static final Shader GRASS_ROOT_DEBUG_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "grass_root_debug_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "grass_root_debug_frag.glsl");
 	static final Shader GRASS_DEBUG_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "grass_debug_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "grass_debug_frag.glsl");
+	static final Shader TREE_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "tree_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "tree_frag.glsl");
+	static final Shader TREE_SHADOW_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "tree_shadow_vert.glsl")
+		.add(GL_FRAGMENT_SHADER, "tree_shadow_frag.glsl");
 	static final Shader WATER_PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "water_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "water_frag.glsl");
@@ -241,6 +254,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int glGrassProgram;
 	private int glGrassGlbProgram;
 	private int glGrassGlbDebugProgram;
+	private int glGrassRootDebugProgram;
 	private int glGrassDebugProgram;
 	private int vaoGrassGlbHandle;
 	private int vboGrassGlbHandle;
@@ -251,7 +265,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniGrassGlbProjection, uniGrassGlbCamera, uniGrassGlbFocus;
 	private int uniGrassGlbWorldOffset, uniGrassGlbTime, uniGrassGlbDrawRadius;
 	private int uniGrassGlbHeightScale, uniGrassGlbWindStrength, uniGrassGlbWeatherMode;
-	private int uniGrassGlbSlopeFollow;
 	private int uniGrassGlbLightDirection, uniGrassGlbLightIntensity, uniGrassGlbAmbientLight;
 	private int uniGrassGlbFogColor, uniGrassGlbNightFactor, uniGrassGlbShadowMap;
 	private int uniGrassGlbShadowLightProj, uniGrassGlbShadowsEnabled, uniGrassGlbShadowStrength;
@@ -259,6 +272,28 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private int uniGrassGlbDebugMode;
 	private int uniGrassGlbDebugProjection, uniGrassGlbDebugBaseCenter;
 	private int uniGrassGlbDebugScale, uniGrassGlbDebugColor;
+	private int uniGrassRootDebugProjection, uniGrassRootDebugMarkerSize;
+	private TreeReplacementRegistry treeReplacementRegistry;
+	private TreeGpuAsset[][] treeLodAssets = new TreeGpuAsset[0][0];
+	private final List<TreeGpuAsset> loadedTreeAssets = new java.util.ArrayList<>();
+	private int glTreeProgram;
+	private int glTreeShadowProgram;
+	private int uniTreeProjection, uniTreeBaseColorTexture, uniTreeShadowMap;
+	private int uniTreeShadowLightProj, uniTreeBaseColorFactor, uniTreeLightDirection;
+	private int uniTreeDirectionalLightingEnabled, uniTreeDirectionalLightingStrength;
+	private int uniTreeEnvironmentFillStrength, uniTreeNightFactor, uniTreeFoliageMaterial;
+	private int uniTreeCameraPosition, uniTreePlayerPosition;
+	private int uniTreeOcclusionMode, uniTreeBubbleRadius, uniTreeSightConeWidth;
+	private int uniTreeMaximumFade, uniTreeCameraTopDownFactor;
+	private int uniTreeTime, uniTreeWindDirection, uniTreeWindStrength;
+	private int uniTreeMaterialWindResponse;
+	private int uniTreeShadowStrength, uniTreeAlphaCutoff, uniTreeFoliageTransmission;
+	private int uniTreeHasBaseColorTexture, uniTreeShadowsEnabled;
+	private int uniTreeShadowProjection, uniTreeShadowBaseColorTexture;
+	private int uniTreeShadowBaseColorFactor, uniTreeShadowAlphaCutoff;
+	private int uniTreeShadowHasBaseColorTexture;
+	private int uniTreeShadowTime, uniTreeShadowWindDirection, uniTreeShadowWindStrength;
+	private int uniTreeShadowMaterialWindResponse;
 	private int glWaterProgram;
 	private int uniWeatherProjection, uniWeatherCamera, uniWeatherTime;
 	private int uniWeatherRadius, uniWeatherFallSpeed, uniWeatherWind, uniWeatherStreakLength;
@@ -302,9 +337,39 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	private final WeatherAudioController weatherAudio = new WeatherAudioController();
 	private long lastThunderCycle = Long.MIN_VALUE;
 	private long grassTimeOriginMillis = -1L;
+	private long treeTimeOriginMillis = -1L;
+	private long treeVisibilityUpdateMillis = -1L;
+	private boolean treeVisibilityInitialized;
+	private float treeVisibilityCameraX, treeVisibilityCameraY, treeVisibilityCameraZ;
+	private float treeVisibilityPlayerX, treeVisibilityPlayerY, treeVisibilityPlayerZ;
+	private float treeVisibilityMaximumFade, treeVisibilityTopDownFactor;
+	private float treeVisibilityBubbleRadius, treeVisibilitySightConeWidth;
+	private static final int TREE_PROFILE_QUERY_COUNT = 16;
+	private final int[] treeFoliageSampleQueries = new int[TREE_PROFILE_QUERY_COUNT];
+	private boolean treeFoliageQueriesPending;
+	private boolean treeFoliageQueryCapture;
+	private int treeFoliageQueriesUsed;
+	private int treeFoliagePendingQueryCount;
+	private long treeProfileFoliageSamples;
+	private long treeProfileLastLogMillis;
+	private int treeProfileVisibleTrees;
+	private long treeProfileTreeTriangles;
+	private long treeProfileFoliageTriangles;
+	private int treeProfileDrawCalls;
+	private int treeProfileFoliageDrawCalls;
+	private int treeProfileShadowDrawCalls;
+	private int treeProfileGrassInstances;
+	private long treeProfileGrassTriangles;
+	private int treeProfileGrassDrawCalls;
+	private final int[] treeProfileVisibleTreesByLod = new int[4];
+	private final long[] treeProfileTrianglesByLod = new long[4];
+	private final int[] treeProfileGrassByBand = new int[4];
+	private int treeProfileShadowCasters;
 	private boolean grassPocStatusLogged;
 	private boolean grassDebugDrawLogged;
 	private boolean grassGlbBoundsLogged;
+	private boolean grassDiagnosticsPending = true;
+	private int grassDiagnosticsGeneration;
 	private int vaoSkyHandle;
 	private int vboSkyHandle;
 	private int vaoGrassHandle;
@@ -588,8 +653,18 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			var rt = rts[i] = new RenderThread();
 			rt.modelUploader = new ModelUploader();
 		}
-		clientUploader = new SceneUploader(renderCallbackManager, config);
-		mapUploader = new SceneUploader(renderCallbackManager, config);
+		try
+		{
+			treeReplacementRegistry = TreeReplacementRegistry.load();
+		}
+		catch (IOException ex)
+		{
+			throw new IllegalStateException("Unable to load tree replacement catalog", ex);
+		}
+		clientUploader = new SceneUploader(renderCallbackManager, config,
+			treeReplacementRegistry);
+		mapUploader = new SceneUploader(renderCallbackManager, config,
+			treeReplacementRegistry);
 		syncMaterialInspectorOverlay();
 		clientThread.invoke(() ->
 		{
@@ -667,6 +742,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				initGrassVao();
 				initGrassGlbVao();
 				initGrassDebugVao();
+				initTreeAssets();
 				initProgram();
 				authoredMaterialAtlas.initialize();
 				initInterfaceTexture();
@@ -791,6 +867,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				shutdownSkyTextures();
 				shutdownGrassVao();
 				shutdownGrassDebugVao();
+				shutdownTreeAssets();
 				shutdownSkyVao();
 				shutdownInterfaceTexture();
 				authoredMaterialAtlas.shutdown();
@@ -831,6 +908,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 	{
 		if (configChanged.getGroup().equals(GpuPluginConfig.GROUP))
 		{
+			if (configChanged.getKey().equals("grassDebugMode"))
+			{
+				grassDiagnosticsPending = true;
+				grassDebugDrawLogged = false;
+			}
 			if (configChanged.getKey().equals("materialInspector"))
 			{
 				syncMaterialInspectorOverlay();
@@ -858,7 +940,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				log.debug("Toggle {}", configChanged.getKey());
 				setupGpuFlags();
 			}
-			else if (configChanged.getKey().equals("terrainTextureBlending")
+			else if (configChanged.getKey().equals("hdGroundTextures")
+				|| configChanged.getKey().equals("terrainTextureBlending")
 				|| configChanged.getKey().equals("terrainBlendStrength"))
 			{
 				// Shared terrain-corner colors are baked into zone VBOs. Force a
@@ -991,7 +1074,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glGrassProgram = GRASS_PROGRAM.compile(template);
 		glGrassGlbProgram = GRASS_GLB_PROGRAM.compile(template);
 		glGrassGlbDebugProgram = GRASS_GLB_DEBUG_PROGRAM.compile(template);
+		glGrassRootDebugProgram = GRASS_ROOT_DEBUG_PROGRAM.compile(template);
 		glGrassDebugProgram = GRASS_DEBUG_PROGRAM.compile(template);
+		glTreeProgram = TREE_PROGRAM.compile(template);
+		glTreeShadowProgram = TREE_SHADOW_PROGRAM.compile(template);
 		glWaterProgram = WATER_PROGRAM.compile(template);
 
 		glBindVertexArray(0);
@@ -1336,6 +1422,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				}
 			}
 		}
+		drawTreeShadows(scene, lightProjection);
 
 		// =====================================================
 		// Restore normal RuneLite render state
@@ -1624,6 +1711,58 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glGrassGlbDebugProgram, "modelScale");
 		uniGrassGlbDebugColor = glGetUniformLocation(
 			glGrassGlbDebugProgram, "debugColor");
+		uniGrassRootDebugProjection = glGetUniformLocation(
+			glGrassRootDebugProgram, "projection");
+		uniGrassRootDebugMarkerSize = glGetUniformLocation(
+			glGrassRootDebugProgram, "markerSize");
+		uniTreeProjection = glGetUniformLocation(glTreeProgram, "projection");
+		uniTreeBaseColorTexture = glGetUniformLocation(glTreeProgram, "baseColorTexture");
+		uniTreeShadowMap = glGetUniformLocation(glTreeProgram, "shadowMap");
+		uniTreeShadowLightProj = glGetUniformLocation(glTreeProgram, "shadowLightProj");
+		uniTreeBaseColorFactor = glGetUniformLocation(glTreeProgram, "baseColorFactor");
+		uniTreeLightDirection = glGetUniformLocation(glTreeProgram, "lightDirection");
+		uniTreeDirectionalLightingEnabled = glGetUniformLocation(
+			glTreeProgram, "directionalLightingEnabled");
+		uniTreeDirectionalLightingStrength = glGetUniformLocation(
+			glTreeProgram, "directionalLightingStrength");
+		uniTreeEnvironmentFillStrength = glGetUniformLocation(
+			glTreeProgram, "environmentFillStrength");
+		uniTreeNightFactor = glGetUniformLocation(glTreeProgram, "nightFactor");
+		uniTreeFoliageMaterial = glGetUniformLocation(glTreeProgram, "foliageMaterial");
+		uniTreeCameraPosition = glGetUniformLocation(glTreeProgram, "cameraPosition");
+		uniTreePlayerPosition = glGetUniformLocation(glTreeProgram, "playerPosition");
+		uniTreeOcclusionMode = glGetUniformLocation(glTreeProgram, "treeOcclusionMode");
+		uniTreeBubbleRadius = glGetUniformLocation(glTreeProgram, "treeBubbleRadius");
+		uniTreeSightConeWidth = glGetUniformLocation(glTreeProgram, "treeSightConeWidth");
+		uniTreeMaximumFade = glGetUniformLocation(glTreeProgram, "treeMaximumFade");
+		uniTreeCameraTopDownFactor = glGetUniformLocation(
+			glTreeProgram, "cameraTopDownFactor");
+		uniTreeTime = glGetUniformLocation(glTreeProgram, "time");
+		uniTreeWindDirection = glGetUniformLocation(glTreeProgram, "windDirection");
+		uniTreeWindStrength = glGetUniformLocation(glTreeProgram, "windStrength");
+		uniTreeMaterialWindResponse = glGetUniformLocation(
+			glTreeProgram, "materialWindResponse");
+		uniTreeShadowStrength = glGetUniformLocation(glTreeProgram, "shadowStrength");
+		uniTreeAlphaCutoff = glGetUniformLocation(glTreeProgram, "alphaCutoff");
+		uniTreeFoliageTransmission = glGetUniformLocation(glTreeProgram, "foliageTransmission");
+		uniTreeHasBaseColorTexture = glGetUniformLocation(glTreeProgram, "hasBaseColorTexture");
+		uniTreeShadowsEnabled = glGetUniformLocation(glTreeProgram, "shadowsEnabled");
+		uniTreeShadowProjection = glGetUniformLocation(glTreeShadowProgram, "lightProj");
+		uniTreeShadowBaseColorTexture = glGetUniformLocation(
+			glTreeShadowProgram, "baseColorTexture");
+		uniTreeShadowBaseColorFactor = glGetUniformLocation(
+			glTreeShadowProgram, "baseColorFactor");
+		uniTreeShadowAlphaCutoff = glGetUniformLocation(
+			glTreeShadowProgram, "alphaCutoff");
+		uniTreeShadowHasBaseColorTexture = glGetUniformLocation(
+			glTreeShadowProgram, "hasBaseColorTexture");
+		uniTreeShadowTime = glGetUniformLocation(glTreeShadowProgram, "time");
+		uniTreeShadowWindDirection = glGetUniformLocation(
+			glTreeShadowProgram, "windDirection");
+		uniTreeShadowWindStrength = glGetUniformLocation(
+			glTreeShadowProgram, "windStrength");
+		uniTreeShadowMaterialWindResponse = glGetUniformLocation(
+			glTreeShadowProgram, "materialWindResponse");
 		uniGrassCamera = glGetUniformLocation(glGrassProgram, "cameraPosition");
 		uniGrassFocus = glGetUniformLocation(glGrassProgram, "focusPosition");
 		uniGrassWorldOffset = glGetUniformLocation(glGrassProgram, "worldOffset");
@@ -1662,7 +1801,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		uniGrassGlbDrawRadius = glGetUniformLocation(glGrassGlbProgram, "drawRadius");
 		uniGrassGlbHeightScale = glGetUniformLocation(glGrassGlbProgram, "heightScale");
 		uniGrassGlbWindStrength = glGetUniformLocation(glGrassGlbProgram, "windStrength");
-		uniGrassGlbSlopeFollow = glGetUniformLocation(glGrassGlbProgram, "slopeFollow");
 		uniGrassGlbWeatherMode = glGetUniformLocation(glGrassGlbProgram, "weatherMode");
 		uniGrassGlbLightDirection = glGetUniformLocation(glGrassGlbProgram, "lightDirection");
 		uniGrassGlbLightIntensity = glGetUniformLocation(glGrassGlbProgram, "lightIntensity");
@@ -1779,6 +1917,22 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glGrassGlbDebugProgram = 0;
 		}
 
+		if (glGrassRootDebugProgram != 0)
+		{
+			glDeleteProgram(glGrassRootDebugProgram);
+			glGrassRootDebugProgram = 0;
+		}
+		if (glTreeProgram != 0)
+		{
+			glDeleteProgram(glTreeProgram);
+			glTreeProgram = 0;
+		}
+		if (glTreeShadowProgram != 0)
+		{
+			glDeleteProgram(glTreeShadowProgram);
+			glTreeShadowProgram = 0;
+		}
+
 		if (glWaterProgram != 0)
 		{
 			glDeleteProgram(glWaterProgram);
@@ -1871,10 +2025,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glVertexAttribPointer(1, 2, GL_FLOAT, false,
 			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
 		glVertexAttribDivisor(1, 1);
-		glEnableVertexAttribArray(6);
-		glVertexAttribPointer(6, 3, GL_FLOAT, false,
-			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 6L * Float.BYTES);
-		glVertexAttribDivisor(6, 1);
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
@@ -1914,21 +2064,17 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			glVertexAttribPointer(4, 4, GL_FLOAT, false,
 				SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 0);
 			glVertexAttribDivisor(4, 1);
-		glEnableVertexAttribArray(5);
-		glVertexAttribPointer(5, 2, GL_FLOAT, false,
-			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
-		glVertexAttribDivisor(5, 1);
-		glEnableVertexAttribArray(6);
-		glVertexAttribPointer(6, 3, GL_FLOAT, false,
-			SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 6L * Float.BYTES);
-		glVertexAttribDivisor(6, 1);
+			glEnableVertexAttribArray(5);
+			glVertexAttribPointer(5, 2, GL_FLOAT, false,
+				SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES, 4L * Float.BYTES);
+			glVertexAttribDivisor(5, 1);
 			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, eboGrassGlbHandle);
 			glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_STATIC_DRAW);
 			glBindVertexArray(0);
 			glBindBuffer(GL_ARRAY_BUFFER, 0);
 			log.info("Loaded production grass GLB: {} vertices, {} indices",
 				mesh.vertices.length / GlbGrassMesh.FLOATS_PER_VERTEX, mesh.indices.length);
-			log.info("Grass GLB bounds raw={}..{}, transformed={}..{}, normalized minHeight=0 maxHeight=64 meshHeight=64",
+			log.info("Grass GLB bounds raw={}..{}, transformed={}..{}, RuneLite-local rootY=0 tipY=-64 meshHeight=64",
 				java.util.Arrays.toString(mesh.rawMin), java.util.Arrays.toString(mesh.rawMax),
 				java.util.Arrays.toString(mesh.transformedMin),
 				java.util.Arrays.toString(mesh.transformedMax));
@@ -1952,6 +2098,106 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glVertexAttribPointer(0, 3, GL_FLOAT, false, 3 * Float.BYTES, 0);
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	private void initTreeAssets()
+	{
+		for (int i = 0; i < treeFoliageSampleQueries.length; ++i)
+		{
+			treeFoliageSampleQueries[i] = glGenQueries();
+		}
+		List<TreeReplacementRegistry.Definition> definitions =
+			treeReplacementRegistry.getDefinitions();
+		treeLodAssets = new TreeGpuAsset[definitions.size()][4];
+		loadedTreeAssets.clear();
+		int loaded = 0;
+		for (TreeReplacementRegistry.Definition definition : definitions)
+		{
+			Map<String, TreeGpuAsset> definitionAssets = new HashMap<>();
+			for (int lod = 0; lod < 4; ++lod)
+			{
+				String resource = definition.resourcePath(lod);
+				if (resource == null || GpuPlugin.class.getResource(resource) == null)
+				{
+					continue;
+				}
+				try
+				{
+					TreeGpuAsset asset = definitionAssets.get(resource);
+					if (asset == null)
+					{
+						asset = TreeGpuAsset.load(definition, resource);
+						definitionAssets.put(resource, asset);
+						loadedTreeAssets.add(asset);
+						loaded++;
+						log.info("Loaded tree {} LOD{}: {} source primitives -> {} draw groups, "
+							+ "{} triangles in shared VBO/IBO",
+							definition.name, lod, asset.mesh.sourcePrimitiveCount,
+							asset.mesh.primitives.length, asset.mesh.indices.length / 3);
+					}
+					treeLodAssets[definition.index][lod] = asset;
+				}
+				catch (IOException | RuntimeException ex)
+				{
+					log.warn("Tree replacement {} LOD{} could not be loaded",
+						definition.name, lod, ex);
+				}
+			}
+			TreeGpuAsset[] authoredLods = treeLodAssets[definition.index].clone();
+			for (int lod = 0; lod < 4; ++lod)
+			{
+				if (treeLodAssets[definition.index][lod] == null)
+				{
+					treeLodAssets[definition.index][lod] = nearestTreeLodAsset(
+						authoredLods, lod);
+				}
+			}
+			if (treeLodAssets[definition.index][0] != null)
+			{
+				treeReplacementRegistry.setActive(definition, true);
+			}
+		}
+		log.info("Tree replacement registry ready: {} definitions, {} unique LOD assets",
+			definitions.size(), loaded);
+	}
+
+	private static TreeGpuAsset nearestTreeLodAsset(TreeGpuAsset[] assets, int lod)
+	{
+		for (int distance = 1; distance < assets.length; ++distance)
+		{
+			int lower = lod - distance;
+			if (lower >= 0 && assets[lower] != null)
+			{
+				return assets[lower];
+			}
+			int higher = lod + distance;
+			if (higher < assets.length && assets[higher] != null)
+			{
+				return assets[higher];
+			}
+		}
+		return assets[lod];
+	}
+
+	private void shutdownTreeAssets()
+	{
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			asset.destroy();
+			treeReplacementRegistry.setActive(asset.definition, false);
+		}
+		loadedTreeAssets.clear();
+		treeLodAssets = new TreeGpuAsset[0][0];
+		for (int i = 0; i < treeFoliageSampleQueries.length; ++i)
+		{
+			if (treeFoliageSampleQueries[i] != 0)
+			{
+				glDeleteQueries(treeFoliageSampleQueries[i]);
+				treeFoliageSampleQueries[i] = 0;
+			}
+		}
+		treeFoliageQueriesPending = false;
+		treeFoliagePendingQueryCount = 0;
 	}
 
 	private void shutdownGrassVao()
@@ -2957,6 +3203,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					{
 						zone.surfaceDetailVisibleFrame = -1;
 						zone.waterVisibleFrame = -1;
+						zone.treeReplacementVisibleFrame = -1;
 					}
 				}
 			}
@@ -3985,10 +4232,612 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		return (hash & 0x00ffffff) / 16777216.0f;
 	}
 
+	private int prepareTreeInstances(Scene scene, boolean visibleOnly)
+	{
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			asset.instances.clear();
+			asset.instanceCount = 0;
+		}
+		if (visibleOnly)
+		{
+			java.util.Arrays.fill(treeProfileVisibleTreesByLod, 0);
+			java.util.Arrays.fill(treeProfileTrianglesByLod, 0L);
+		}
+		else
+		{
+			treeProfileShadowCasters = 0;
+		}
+		SceneContext ctx = context(scene);
+		if (ctx == null || scene.getWorldViewId() != WorldView.TOPLEVEL)
+		{
+			return 0;
+		}
+		int offset = SCENE_OFFSET >> 3;
+		int[] bands = vegetationDistanceBands();
+		int total = 0;
+		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		{
+			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			{
+				Zone zone = ctx.zones[zx][zz];
+				if (!zone.initialized || visibleOnly
+					&& zone.treeReplacementVisibleFrame != grassVisibilityFrame)
+				{
+					continue;
+				}
+				float baseX = (zx - offset) * 1024.0f;
+				float baseZ = (zz - offset) * 1024.0f;
+				for (Zone.TreeReplacementInstance instance : zone.treeReplacements)
+				{
+					if (instance.definition < 0 || instance.definition >= treeLodAssets.length
+						|| instance.level < ctx.minLevel || instance.level > ctx.maxLevel
+						|| instance.level > ctx.level && instance.roofId > 0
+							&& ctx.hideRoofIds.contains(instance.roofId))
+					{
+						continue;
+					}
+					float worldX = baseX + instance.x;
+					float worldZ = baseZ + instance.z;
+					float dx = worldX - weatherCameraX;
+					float dz = worldZ - weatherCameraZ;
+					float distanceTiles = (float) Math.sqrt(dx * dx + dz * dz)
+						/ Perspective.LOCAL_TILE_SIZE;
+					float staggeredDistance = distanceTiles + (instance.seed - 0.5f) * 1.5f;
+					int lod;
+					if (visibleOnly)
+					{
+						lod = vegetationLod(staggeredDistance,
+							bands[0], bands[1], bands[2]);
+					}
+					else
+					{
+						// Tree shadows deliberately end at the mid boundary. Near trees
+						// retain LOD0 shadows; the mid band requests a cheaper LOD2.
+						if (distanceTiles >= bands[1])
+						{
+							continue;
+						}
+						lod = distanceTiles < bands[0] ? 0 : 2;
+					}
+					TreeGpuAsset asset = treeLodAssets[instance.definition][lod];
+					if (asset == null || asset.instances.remaining() < TreeGpuAsset.INSTANCE_FLOATS)
+					{
+						continue;
+					}
+					TreeReplacementRegistry.Definition definition = asset.definition;
+					float yaw = instance.orientation * (float) (Math.PI * 2.0 / 2048.0)
+						+ (float) Math.toRadians(definition.rotationOffset);
+					if (definition.randomYaw)
+					{
+						yaw += (instance.seed - 0.5f) * (float) Math.toRadians(10.0);
+					}
+					float scale = definition.scale * (0.95f + instance.seed * 0.10f);
+					asset.instances.put(worldX).put(instance.y)
+						.put(worldZ).put(yaw).put(scale).put(instance.seed);
+					if (visibleOnly)
+					{
+						treeProfileVisibleTreesByLod[lod]++;
+						treeProfileTrianglesByLod[lod] += enabledTreeTriangles(asset);
+					}
+					else
+					{
+						treeProfileShadowCasters++;
+					}
+					total++;
+				}
+			}
+		}
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			asset.uploadInstances();
+		}
+		return total;
+	}
+
+	private long enabledTreeTriangles(TreeGpuAsset asset)
+	{
+		long triangles = 0;
+		for (VegetationGlbMesh.Primitive primitive : asset.mesh.primitives)
+		{
+			boolean foliage = asset.mesh.materials[primitive.material].alphaCutoff > 0.0f;
+			if (foliage ? config.renderTreeFoliage() : config.renderTreeTrunks())
+			{
+				triangles += primitive.indexCount / 3L;
+			}
+		}
+		return triangles;
+	}
+
+	private int[] vegetationDistanceBands()
+	{
+		int near = config.vegetationNearDistance();
+		int mid = Math.max(near + 1, config.vegetationMidDistance());
+		int far = Math.max(mid + 1, config.vegetationFarDistance());
+		// Three boundaries define four bands: near, mid, far, and extreme.
+		return new int[]{near, mid, far};
+	}
+
+	@VisibleForTesting
+	static int vegetationLod(float distanceTiles, int near, int mid, int far)
+	{
+		return distanceTiles < near ? 0
+			: distanceTiles < mid ? 1 : distanceTiles < far ? 2 : 3;
+	}
+
+	private void drawTrees(Scene scene)
+	{
+		treeProfileVisibleTrees = 0;
+		treeProfileTreeTriangles = 0;
+		treeProfileFoliageTriangles = 0;
+		treeProfileDrawCalls = 0;
+		treeProfileFoliageDrawCalls = 0;
+		pollTreeFoliageSampleQueries();
+		if (!config.renderTreeFoliage())
+		{
+			treeProfileFoliageSamples = 0;
+		}
+		if (glTreeProgram == 0 || loadedTreeAssets.isEmpty())
+		{
+			return;
+		}
+		treeProfileVisibleTrees = prepareTreeInstances(scene, true);
+		if (treeProfileVisibleTrees == 0)
+		{
+			return;
+		}
+		treeFoliageQueriesUsed = 0;
+		treeFoliageQueryCapture = config.treeRenderProfiling()
+			&& !treeFoliageQueriesPending;
+		float[] light = getActiveSceneLightDirection();
+		float treeTime = treeAnimationSeconds();
+		float windSign = config.weatherWind() < 0 ? -1.0f : 1.0f;
+		int treeOcclusionMode = updateTreeVisibilityState();
+		glUseProgram(glTreeProgram);
+		glUniformMatrix4fv(uniTreeProjection, false, weatherProjection);
+		glUniformMatrix4fv(uniTreeShadowLightProj, false, currentShadowLightProj);
+		glUniform3f(uniTreeLightDirection, light[0], light[1], light[2]);
+		glUniform1i(uniTreeDirectionalLightingEnabled,
+			config.directionalLighting() ? 1 : 0);
+		glUniform1f(uniTreeDirectionalLightingStrength,
+			config.directionalLightingStrength() / 100.0f);
+		glUniform1f(uniTreeEnvironmentFillStrength,
+			config.environmentFillStrength() / 100.0f);
+		glUniform1f(uniTreeNightFactor, frameEnvironment.nightFactor);
+		glUniform3f(uniTreeCameraPosition, treeVisibilityCameraX,
+			treeVisibilityCameraY, treeVisibilityCameraZ);
+		glUniform3f(uniTreePlayerPosition, treeVisibilityPlayerX,
+			treeVisibilityPlayerY, treeVisibilityPlayerZ);
+		glUniform1i(uniTreeOcclusionMode, treeOcclusionMode);
+		glUniform1f(uniTreeBubbleRadius, treeVisibilityBubbleRadius);
+		glUniform1f(uniTreeSightConeWidth, treeVisibilitySightConeWidth);
+		glUniform1f(uniTreeMaximumFade, treeVisibilityMaximumFade);
+		glUniform1f(uniTreeCameraTopDownFactor, treeVisibilityTopDownFactor);
+		glUniform1f(uniTreeTime, treeTime);
+		glUniform2f(uniTreeWindDirection, 0.82f * windSign, 0.57f * windSign);
+		glUniform1f(uniTreeShadowStrength, config.shadowStrength() / 100.0f);
+		glUniform1i(uniTreeShadowsEnabled,
+			surfaceShadowMapValid && shadowDepthTexture != 0 ? 1 : 0);
+		glUniform1i(uniTreeBaseColorTexture, 0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+		glUniform1i(uniTreeShadowMap, 5);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(true);
+		glDisable(GL_BLEND);
+
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			if (asset == null || asset.instanceCount == 0)
+			{
+				continue;
+			}
+			glUniform1f(uniTreeFoliageTransmission,
+				asset.definition.foliageTransmission);
+			glUniform1f(uniTreeWindStrength, treeWindStrength(asset.definition));
+			glBindVertexArray(asset.vao);
+			for (VegetationGlbMesh.Primitive primitive : asset.mesh.primitives)
+			{
+				VegetationGlbMesh.Material material = asset.mesh.materials[primitive.material];
+				boolean foliage = material.alphaCutoff > 0.0f;
+				if (foliage ? !config.renderTreeFoliage() : !config.renderTreeTrunks())
+				{
+					continue;
+				}
+				bindTreeMaterial(material, asset.materialTextures[primitive.material], false);
+				boolean query = foliage && treeFoliageQueryCapture
+					&& treeFoliageQueriesUsed < treeFoliageSampleQueries.length;
+				if (query)
+				{
+					glBeginQuery(GL_SAMPLES_PASSED,
+						treeFoliageSampleQueries[treeFoliageQueriesUsed]);
+				}
+				glDrawElementsInstanced(GL_TRIANGLES, primitive.indexCount,
+					GL_UNSIGNED_INT, (long) primitive.firstIndex * Integer.BYTES,
+					asset.instanceCount);
+				if (query)
+				{
+					glEndQuery(GL_SAMPLES_PASSED);
+					treeFoliageQueriesUsed++;
+				}
+				long triangles = (long) primitive.indexCount / 3L
+					* asset.instanceCount;
+				treeProfileTreeTriangles += triangles;
+				treeProfileDrawCalls++;
+				if (foliage)
+				{
+					treeProfileFoliageTriangles += triangles;
+					treeProfileFoliageDrawCalls++;
+				}
+			}
+		}
+		if (treeFoliageQueriesUsed > 0)
+		{
+			treeFoliagePendingQueryCount = treeFoliageQueriesUsed;
+			treeFoliageQueriesPending = true;
+		}
+		glBindVertexArray(0);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		restoreSceneRenderState();
+	}
+
+	private void bindTreeMaterial(VegetationGlbMesh.Material material,
+		int texture, boolean shadow)
+	{
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		if (material.doubleSided)
+		{
+			glDisable(GL_CULL_FACE);
+		}
+		else
+		{
+			glEnable(GL_CULL_FACE);
+		}
+		int factor = shadow ? uniTreeShadowBaseColorFactor : uniTreeBaseColorFactor;
+		int cutoff = shadow ? uniTreeShadowAlphaCutoff : uniTreeAlphaCutoff;
+		int hasTexture = shadow ? uniTreeShadowHasBaseColorTexture
+			: uniTreeHasBaseColorTexture;
+		glUniform4f(factor, material.baseColorFactor[0], material.baseColorFactor[1],
+			material.baseColorFactor[2], material.baseColorFactor[3]);
+		glUniform1f(cutoff, material.alphaCutoff);
+		glUniform1i(hasTexture, texture != 0 ? 1 : 0);
+		glUniform1f(shadow ? uniTreeShadowMaterialWindResponse
+			: uniTreeMaterialWindResponse, material.windResponse);
+		if (!shadow)
+		{
+			glUniform1i(uniTreeFoliageMaterial,
+				material.alphaCutoff > 0.0f ? 1 : 0);
+		}
+	}
+
+	private void drawTreeShadows(Scene scene, float[] lightProjection)
+	{
+		treeProfileShadowDrawCalls = 0;
+		if (!config.treeShadows())
+		{
+			return;
+		}
+		if (glTreeShadowProgram == 0 || loadedTreeAssets.isEmpty()
+			|| prepareTreeInstances(scene, false) == 0)
+		{
+			return;
+		}
+		glUseProgram(glTreeShadowProgram);
+		glUniformMatrix4fv(uniTreeShadowProjection, false, lightProjection);
+		glUniform1i(uniTreeShadowBaseColorTexture, 0);
+		float windSign = config.weatherWind() < 0 ? -1.0f : 1.0f;
+		glUniform1f(uniTreeShadowTime, treeAnimationSeconds());
+		glUniform2f(uniTreeShadowWindDirection,
+			0.82f * windSign, 0.57f * windSign);
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			if (asset == null || asset.instanceCount == 0)
+			{
+				continue;
+			}
+			glUniform1f(uniTreeShadowWindStrength,
+				treeWindStrength(asset.definition));
+			glBindVertexArray(asset.vao);
+			for (VegetationGlbMesh.Primitive primitive : asset.mesh.primitives)
+			{
+				VegetationGlbMesh.Material material = asset.mesh.materials[primitive.material];
+				bindTreeMaterial(material, asset.materialTextures[primitive.material], true);
+				glDrawElementsInstanced(GL_TRIANGLES, primitive.indexCount,
+					GL_UNSIGNED_INT, (long) primitive.firstIndex * Integer.BYTES,
+					asset.instanceCount);
+				treeProfileShadowDrawCalls++;
+			}
+		}
+		glBindVertexArray(0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	private void pollTreeFoliageSampleQueries()
+	{
+		if (!treeFoliageQueriesPending)
+		{
+			return;
+		}
+		for (int i = 0; i < treeFoliagePendingQueryCount; ++i)
+		{
+			if (glGetQueryObjecti(treeFoliageSampleQueries[i],
+				GL_QUERY_RESULT_AVAILABLE) == GL_FALSE)
+			{
+				return;
+			}
+		}
+		long samples = 0;
+		for (int i = 0; i < treeFoliagePendingQueryCount; ++i)
+		{
+			samples += glGetQueryObjectui64(treeFoliageSampleQueries[i],
+				GL_QUERY_RESULT);
+		}
+		treeProfileFoliageSamples = samples;
+		treeFoliagePendingQueryCount = 0;
+		treeFoliageQueriesPending = false;
+	}
+
+	private float treeAnimationSeconds()
+	{
+		ensureFrameEnvironment();
+		long now = frameEnvironment.timeMillis;
+		if (treeTimeOriginMillis < 0L)
+		{
+			treeTimeOriginMillis = now;
+		}
+		return (now - treeTimeOriginMillis) / 1000.0f;
+	}
+
+	private float treeWindStrength(TreeReplacementRegistry.Definition definition)
+	{
+		return definition.windStrength
+			* (0.85f + Math.abs(config.weatherWind()) / 100.0f * 0.60f);
+	}
+
+	private int updateTreeVisibilityState()
+	{
+		TreeOcclusionMode mode = config.treeOcclusion();
+		// Profiles written by the old slider-based implementation can contain the
+		// removed ADAPTIVE value. Fail safely to the new default preset.
+		if (mode == null)
+		{
+			mode = TreeOcclusionMode.STRONG;
+		}
+		Player player = client.getLocalPlayer();
+		if (mode == TreeOcclusionMode.OFF || player == null
+			|| player.getLocalLocation() == null)
+		{
+			return TreeOcclusionMode.OFF.ordinal();
+		}
+
+		LocalPoint local = player.getLocalLocation();
+		float targetPlayerX = local.getX();
+		float targetPlayerZ = local.getY();
+		float targetPlayerY = Perspective.getTileHeight(client, local,
+			client.getPlane()) - 96.0f;
+		float targetMaximumFade = mode.maximumFade;
+		float targetBubbleRadius = mode.bubbleRadius;
+		float targetSightConeWidth = mode.sightConeWidth;
+		float targetTopDown = treeTopDownFactor(client.getCameraPitch());
+		long now = frameEnvironment.timeMillis;
+		float playerDx = targetPlayerX - treeVisibilityPlayerX;
+		float playerDz = targetPlayerZ - treeVisibilityPlayerZ;
+		boolean playerTeleported = playerDx * playerDx + playerDz * playerDz
+			> 1024.0f * 1024.0f;
+
+		if (!treeVisibilityInitialized || playerTeleported
+			|| treeVisibilityUpdateMillis < 0L)
+		{
+			treeVisibilityCameraX = weatherCameraX;
+			treeVisibilityCameraY = weatherCameraY;
+			treeVisibilityCameraZ = weatherCameraZ;
+			treeVisibilityPlayerX = targetPlayerX;
+			treeVisibilityPlayerY = targetPlayerY;
+			treeVisibilityPlayerZ = targetPlayerZ;
+			treeVisibilityMaximumFade = targetMaximumFade;
+			treeVisibilityTopDownFactor = targetTopDown;
+			treeVisibilityBubbleRadius = targetBubbleRadius;
+			treeVisibilitySightConeWidth = targetSightConeWidth;
+			treeVisibilityInitialized = true;
+		}
+		else
+		{
+			float elapsed = Math.min(0.25f,
+				Math.max(0.0f, (now - treeVisibilityUpdateMillis) / 1000.0f));
+			float response = 1.0f - (float) Math.exp(
+				-elapsed * mode.fadeSpeed);
+			treeVisibilityCameraX += (weatherCameraX - treeVisibilityCameraX) * response;
+			treeVisibilityCameraY += (weatherCameraY - treeVisibilityCameraY) * response;
+			treeVisibilityCameraZ += (weatherCameraZ - treeVisibilityCameraZ) * response;
+			treeVisibilityPlayerX += (targetPlayerX - treeVisibilityPlayerX) * response;
+			treeVisibilityPlayerY += (targetPlayerY - treeVisibilityPlayerY) * response;
+			treeVisibilityPlayerZ += (targetPlayerZ - treeVisibilityPlayerZ) * response;
+			treeVisibilityMaximumFade +=
+				(targetMaximumFade - treeVisibilityMaximumFade) * response;
+			treeVisibilityTopDownFactor +=
+				(targetTopDown - treeVisibilityTopDownFactor) * response;
+			treeVisibilityBubbleRadius +=
+				(targetBubbleRadius - treeVisibilityBubbleRadius) * response;
+			treeVisibilitySightConeWidth +=
+				(targetSightConeWidth - treeVisibilitySightConeWidth) * response;
+		}
+		treeVisibilityUpdateMillis = now;
+		return mode.ordinal();
+	}
+
+	@VisibleForTesting
+	static float treeTopDownFactor(int cameraPitch)
+	{
+		float normalized = Math.max(0.0f, Math.min(1.0f,
+			(cameraPitch - 128.0f) / 255.0f));
+		return normalized * normalized * (3.0f - 2.0f * normalized);
+	}
+
+	private void drawTreeOcclusionDebug()
+	{
+		if (glGrassDebugProgram == 0 || vaoGrassDebugHandle == 0
+			|| vboGrassDebugHandle == 0)
+		{
+			return;
+		}
+
+		float bubbleRadius = treeVisibilityBubbleRadius;
+		float viewX = treeVisibilityPlayerX - treeVisibilityCameraX;
+		float viewY = treeVisibilityPlayerY - treeVisibilityCameraY;
+		float viewZ = treeVisibilityPlayerZ - treeVisibilityCameraZ;
+		float viewLength = (float) Math.sqrt(
+			viewX * viewX + viewY * viewY + viewZ * viewZ);
+		if (viewLength < 0.001f)
+		{
+			return;
+		}
+		viewX /= viewLength;
+		viewY /= viewLength;
+		viewZ /= viewLength;
+		float rightX = -viewZ;
+		float rightY = 0.0f;
+		float rightZ = viewX;
+		float rightLength = (float) Math.sqrt(rightX * rightX + rightZ * rightZ);
+		if (rightLength < 0.001f)
+		{
+			rightX = 1.0f;
+			rightZ = 0.0f;
+		}
+		else
+		{
+			rightX /= rightLength;
+			rightZ /= rightLength;
+		}
+		float upX = viewY * rightZ - viewZ * rightY;
+		float upY = viewZ * rightX - viewX * rightZ;
+		float upZ = viewX * rightY - viewY * rightX;
+
+		grassDebugBuffer.clear();
+		final int bubbleSections = 16;
+		for (int section = 0; section < bubbleSections; ++section)
+		{
+			float angle0 = (float) (section * Math.PI * 2.0 / bubbleSections);
+			float angle1 = (float) ((section + 1) * Math.PI * 2.0 / bubbleSections);
+			putDebugLine(
+				treeVisibilityPlayerX + (float) Math.cos(angle0) * bubbleRadius,
+				treeVisibilityPlayerY,
+				treeVisibilityPlayerZ + (float) Math.sin(angle0) * bubbleRadius,
+				treeVisibilityPlayerX + (float) Math.cos(angle1) * bubbleRadius,
+				treeVisibilityPlayerY,
+				treeVisibilityPlayerZ + (float) Math.sin(angle1) * bubbleRadius);
+			float vertical0 = (float) Math.sin(angle0);
+			float vertical1 = (float) Math.sin(angle1);
+			float height0 = vertical0 < 0.0f
+				? bubbleRadius * 4.5f : bubbleRadius * 1.3f;
+			float height1 = vertical1 < 0.0f
+				? bubbleRadius * 4.5f : bubbleRadius * 1.3f;
+			putDebugLine(
+				treeVisibilityPlayerX + rightX * (float) Math.cos(angle0) * bubbleRadius,
+				treeVisibilityPlayerY + vertical0 * height0,
+				treeVisibilityPlayerZ + rightZ * (float) Math.cos(angle0) * bubbleRadius,
+				treeVisibilityPlayerX + rightX * (float) Math.cos(angle1) * bubbleRadius,
+				treeVisibilityPlayerY + vertical1 * height1,
+				treeVisibilityPlayerZ + rightZ * (float) Math.cos(angle1) * bubbleRadius);
+		}
+		drawTreeOcclusionDebugLines(bubbleSections * 4, 0.05f, 1.0f, 1.0f);
+
+		float extension = Perspective.LOCAL_TILE_SIZE;
+		float endX = treeVisibilityPlayerX + viewX * extension;
+		float endY = treeVisibilityPlayerY + viewY * extension;
+		float endZ = treeVisibilityPlayerZ + viewZ * extension;
+		float width = treeVisibilitySightConeWidth;
+		float[] centersX = {treeVisibilityCameraX, treeVisibilityPlayerX, endX};
+		float[] centersY = {treeVisibilityCameraY, treeVisibilityPlayerY, endY};
+		float[] centersZ = {treeVisibilityCameraZ, treeVisibilityPlayerZ, endZ};
+		float[] radii = {width * 0.65f, width, width};
+		grassDebugBuffer.clear();
+		final int coneSections = 12;
+		for (int ring = 0; ring < centersX.length; ++ring)
+		{
+			for (int section = 0; section < coneSections; ++section)
+			{
+				float angle0 = (float) (section * Math.PI * 2.0 / coneSections);
+				float angle1 = (float) ((section + 1) * Math.PI * 2.0 / coneSections);
+				putDebugLine(
+					centersX[ring] + (rightX * (float) Math.cos(angle0)
+						+ upX * (float) Math.sin(angle0)) * radii[ring],
+					centersY[ring] + (rightY * (float) Math.cos(angle0)
+						+ upY * (float) Math.sin(angle0)) * radii[ring],
+					centersZ[ring] + (rightZ * (float) Math.cos(angle0)
+						+ upZ * (float) Math.sin(angle0)) * radii[ring],
+					centersX[ring] + (rightX * (float) Math.cos(angle1)
+						+ upX * (float) Math.sin(angle1)) * radii[ring],
+					centersY[ring] + (rightY * (float) Math.cos(angle1)
+						+ upY * (float) Math.sin(angle1)) * radii[ring],
+					centersZ[ring] + (rightZ * (float) Math.cos(angle1)
+						+ upZ * (float) Math.sin(angle1)) * radii[ring]);
+			}
+		}
+		for (int section = 0; section < coneSections; section += 3)
+		{
+			float angle = (float) (section * Math.PI * 2.0 / coneSections);
+			float edgeX = rightX * (float) Math.cos(angle) + upX * (float) Math.sin(angle);
+			float edgeY = rightY * (float) Math.cos(angle) + upY * (float) Math.sin(angle);
+			float edgeZ = rightZ * (float) Math.cos(angle) + upZ * (float) Math.sin(angle);
+			for (int segment = 0; segment < 2; ++segment)
+			{
+				putDebugLine(
+					centersX[segment] + edgeX * radii[segment],
+					centersY[segment] + edgeY * radii[segment],
+					centersZ[segment] + edgeZ * radii[segment],
+					centersX[segment + 1] + edgeX * radii[segment + 1],
+					centersY[segment + 1] + edgeY * radii[segment + 1],
+					centersZ[segment + 1] + edgeZ * radii[segment + 1]);
+			}
+		}
+		drawTreeOcclusionDebugLines(coneSections * 6 + 16,
+			1.0f, 0.08f, 0.82f);
+	}
+
+	private void putDebugLine(float x0, float y0, float z0,
+		float x1, float y1, float z1)
+	{
+		putDebugVertex(x0, y0, z0);
+		putDebugVertex(x1, y1, z1);
+	}
+
+	private void drawTreeOcclusionDebugLines(int vertexCount,
+		float red, float green, float blue)
+	{
+		grassDebugBuffer.flip();
+		glUseProgram(glGrassDebugProgram);
+		glUniformMatrix4fv(uniGrassDebugProjection, false, weatherProjection);
+		glUniform3f(uniGrassDebugBaseCenter, 0.0f, 0.0f, 0.0f);
+		glUniform1f(uniGrassDebugInstanceSpacing, 0.0f);
+		glUniform3f(uniGrassDebugColor, red, green, blue);
+		glBindBuffer(GL_ARRAY_BUFFER, vboGrassDebugHandle);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, grassDebugBuffer);
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(false);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassDebugHandle);
+		glDrawArrays(GL_LINES, 0, vertexCount);
+		glBindVertexArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glDepthMask(true);
+		restoreSceneRenderState();
+	}
+
 	private void drawSurfaceDetails(Scene scene)
 	{
+		treeProfileGrassInstances = 0;
+		treeProfileGrassTriangles = 0;
+		treeProfileGrassDrawCalls = 0;
+		java.util.Arrays.fill(treeProfileGrassByBand, 0);
 		GrassDebugMode debugMode = config.grassDebugMode();
-		if (debugMode != GrassDebugMode.OFF)
+		boolean rootMarkerDebug = debugMode == GrassDebugMode.GLB_ROOT_MARKERS;
+		if (debugMode != GrassDebugMode.OFF && !rootMarkerDebug)
 		{
 			if (debugMode == GrassDebugMode.GLB_LINE)
 			{
@@ -4003,11 +4852,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			if (debugMode == GrassDebugMode.GLB_TERRAIN_ALL)
 			{
 				drawGlbGrassAllTerrainDebug(scene);
-				return;
-			}
-			if (debugMode == GrassDebugMode.GLB_SLOPE_TEST)
-			{
-				drawGlbGrassSlopeDebug(scene);
 				return;
 			}
 			if (debugMode == GrassDebugMode.GLB_CLUMP)
@@ -4033,7 +4877,8 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			drawGrassDebugQuad();
 			return;
 		}
-		if ((!config.flowingGrass() && !config.terrainDetail())
+		boolean grassEnabled = config.flowingGrass() || rootMarkerDebug;
+		if ((!grassEnabled && !config.terrainDetail())
 			|| glGrassProgram == 0
 			|| vaoGrassHandle == 0
 			|| vboGrassInstanceHandle == 0)
@@ -4047,16 +4892,15 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			return;
 		}
 
-		// Clamp stale profiles that predate the current UI ranges. A persisted
-		// 24-tile value otherwise defeats the deliberate detail-pass cost ceiling.
-		float grassRadius = Math.min(config.grassDistance(), 18)
+		int[] vegetationBands = vegetationDistanceBands();
+		float grassRadius = vegetationBands[2]
 			* (float) Perspective.LOCAL_TILE_SIZE;
 		float stoneRadius = Math.min(config.terrainDetailDistance(), 18)
 			* (float) Perspective.LOCAL_TILE_SIZE;
 		float scatterRadius = Math.min(stoneRadius,
 			9.0f * Perspective.LOCAL_TILE_SIZE);
 		float maximumRadius = Math.max(
-			config.flowingGrass() ? grassRadius : 0.0f,
+			grassEnabled ? grassRadius : 0.0f,
 			config.terrainDetail() ? stoneRadius : 0.0f);
 		float grassDensity = config.grassDensity() / 100.0f;
 		float detailDensity = config.terrainDetailStrength() / 100.0f;
@@ -4064,6 +4908,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		int minimumLevel = Math.max(0, ctx.minLevel);
 		int maximumLevel = Math.min(3, ctx.maxLevel);
 		int instanceCount = 0;
+		int grassInstanceCount = 0;
 		int eligibleTiles = 0;
 		int eligibleTriangles = 0;
 		grassInstanceBuffer.clear();
@@ -4113,7 +4958,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 							Math.round(zone.surfaceDetailAnchors[anchor + 5])));
 						boolean grassDetail = detailType == 0;
 						boolean enabled = grassDetail
-							? config.flowingGrass() : config.terrainDetail();
+							? grassEnabled : config.terrainDetail();
 						float worldX = baseX + zone.surfaceDetailAnchors[anchor];
 						float worldZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
 						float density = detailType == 0 ? grassDensity
@@ -4123,13 +4968,27 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 						float drawRadius = detailType <= 1
 							? (grassDetail ? grassRadius : stoneRadius)
 							: scatterRadius;
-						if (!enabled || surfaceDetailSelection(seed, detailType) > density)
+						if (!enabled)
 						{
 							continue;
 						}
 
 						float dx = worldX - weatherCameraX;
 						float dz = worldZ - weatherCameraZ;
+						float distanceTiles = (float) Math.sqrt(dx * dx + dz * dz)
+							/ Perspective.LOCAL_TILE_SIZE;
+						int distanceBand = vegetationLod(distanceTiles,
+							vegetationBands[0], vegetationBands[1], vegetationBands[2]);
+						if (grassDetail)
+						{
+							density *= grassDensityMultiplier(distanceTiles,
+								vegetationBands[0], vegetationBands[1], vegetationBands[2]);
+						}
+						if (density <= 0.0f
+							|| surfaceDetailSelection(seed, detailType) > density)
+						{
+							continue;
+						}
 						if (dx * dx + dz * dz > drawRadius * drawRadius)
 						{
 							continue;
@@ -4141,9 +5000,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 						grassInstanceBuffer.put(seed);
 						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
 						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 5]);
-						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
-						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
-						grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
+						if (grassDetail)
+						{
+							grassInstanceCount++;
+							treeProfileGrassByBand[distanceBand]++;
+						}
 						if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
 						{
 							break gather;
@@ -4155,6 +5016,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		if (instanceCount == 0)
 		{
+			logGrassTerrainDiagnostics(ctx, 0, 0);
 			if (!grassPocStatusLogged && config.flowingGrass())
 			{
 				log.info("Flowing grass placement: eligibleTiles={}, eligibleTriangles={}, instances=0",
@@ -4182,6 +5044,10 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				* SURFACE_DETAIL_INSTANCE_FLOATS * Float.BYTES,
 			GL_STREAM_DRAW);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
+		if (rootMarkerDebug)
+		{
+			drawGrassRootMarkers(instanceCount);
+		}
 		long now = frameEnvironment.timeMillis;
 		if (grassTimeOriginMillis < 0L)
 		{
@@ -4219,7 +5085,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		if (vaoGrassGlbHandle != 0 && glGrassGlbProgram != 0 && grassGlbIndexCount > 0)
 		{
 			drawGrassGlb(instanceCount, grassRadius, weather, wind,
-				lightDirection, grassShadowMapValid, false, true, 0.0f);
+				lightDirection, grassShadowMapValid, false, true);
+			treeProfileGrassInstances = grassInstanceCount;
+			treeProfileGrassTriangles = (long) grassGlbIndexCount / 3L
+				* grassInstanceCount;
+			treeProfileGrassDrawCalls = 1;
+			logGrassTerrainDiagnostics(ctx, grassInstanceCount, grassInstanceCount);
 			return;
 		}
 
@@ -4281,17 +5152,101 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glBindVertexArray(vaoGrassHandle);
 		glDrawArraysInstanced(GL_TRIANGLES, 0,
 			SURFACE_DETAIL_VERTICES_PER_INSTANCE, instanceCount);
+		treeProfileGrassInstances = grassInstanceCount;
+		treeProfileGrassTriangles = (long) SURFACE_DETAIL_VERTICES_PER_INSTANCE
+			/ 3L * grassInstanceCount;
+		treeProfileGrassDrawCalls = 1;
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glActiveTexture(GL_TEXTURE5);
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glActiveTexture(GL_TEXTURE0);
 		restoreSceneRenderState();
+		logGrassTerrainDiagnostics(ctx, grassInstanceCount, grassInstanceCount);
+	}
+
+	@VisibleForTesting
+	static float grassDensityMultiplier(float distanceTiles,
+		int near, int mid, int far)
+	{
+		if (distanceTiles <= near)
+		{
+			return 1.0f;
+		}
+		if (distanceTiles < mid)
+		{
+			float t = (distanceTiles - near) / Math.max(1.0f, mid - near);
+			t = t * t * (3.0f - 2.0f * t);
+			return 1.0f + (0.5f - 1.0f) * t;
+		}
+		if (distanceTiles < far)
+		{
+			float t = (distanceTiles - mid) / Math.max(1.0f, far - mid);
+			return 0.5f * (1.0f - t) * (1.0f - t);
+		}
+		return 0.0f;
+	}
+
+	private void logTreeRenderProfile()
+	{
+		if (!config.treeRenderProfiling())
+		{
+			return;
+		}
+		long now = frameEnvironment.timeMillis;
+		if (now - treeProfileLastLogMillis < 1000L)
+		{
+			return;
+		}
+		treeProfileLastLogMillis = now;
+		int activeAssets = 0;
+		int sharedTextures = 0;
+		for (TreeGpuAsset asset : loadedTreeAssets)
+		{
+			if (asset != null)
+			{
+				activeAssets++;
+				for (int texture : asset.materialTextures)
+				{
+					if (texture != 0)
+					{
+						sharedTextures++;
+					}
+				}
+			}
+		}
+		long viewportPixels = Math.max(1L,
+			(long) client.getViewportWidth() * client.getViewportHeight());
+		double samplesPerPixel = treeProfileFoliageSamples
+			/ (double) viewportPixels;
+		long combinedTriangles = treeProfileTreeTriangles
+			+ treeProfileGrassTriangles;
+		log.info("Vegetation LOD profile (last frame): visibleTrees={} byLod={}, "
+			+ "treeTriangles={} byLod={}, "
+			+ "treeDrawCalls={} (foliage={}), foliageTriangles={}, "
+			+ "shadowTreeDrawCalls={}, foliageSamplesPassed={} (~{}x viewport; "
+			+ "lower bound, discarded/failed-depth fragments excluded), "
+			+ "grassInstances={} byBand={}, grassTriangles={}, grassDrawCalls={}, "
+			+ "vegetationShadowCasters={}, "
+			+ "combinedTreeGrassTriangles={}, sharedGeometry=true "
+			+ "(gpuAssets={}, sharedVboIboPairs={}, sharedTextures={})",
+			treeProfileVisibleTrees,
+			java.util.Arrays.toString(treeProfileVisibleTreesByLod),
+			treeProfileTreeTriangles,
+			java.util.Arrays.toString(treeProfileTrianglesByLod),
+			treeProfileDrawCalls, treeProfileFoliageDrawCalls,
+			treeProfileFoliageTriangles, treeProfileShadowDrawCalls,
+			treeProfileFoliageSamples,
+			Math.round(samplesPerPixel * 100.0) / 100.0,
+			treeProfileGrassInstances,
+			java.util.Arrays.toString(treeProfileGrassByBand),
+			treeProfileGrassTriangles, treeProfileGrassDrawCalls,
+			treeProfileShadowCasters, combinedTriangles,
+			activeAssets, activeAssets, sharedTextures);
 	}
 
 	private void drawGrassGlb(int instanceCount, float grassRadius,
 		WeatherMode weather, float wind, float[] lightDirection,
-		boolean shadowMapValid, boolean debug, boolean instanced,
-		float slopeFollow)
+		boolean shadowMapValid, boolean debug, boolean instanced)
 	{
 		long now = frameEnvironment.timeMillis;
 		glUseProgram(glGrassGlbProgram);
@@ -4305,7 +5260,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glUniform4f(uniGrassGlbDrawRadius, grassRadius, 0.0f, 0.0f, 0.0f);
 		glUniform1f(uniGrassGlbHeightScale, 1.0f);
 		glUniform1f(uniGrassGlbWindStrength, wind);
-		glUniform1f(uniGrassGlbSlopeFollow, slopeFollow);
 		glUniform1i(uniGrassGlbWeatherMode, weather.ordinal());
 		glUniform3f(uniGrassGlbLightDirection,
 			lightDirection[0], lightDirection[1], lightDirection[2]);
@@ -4346,6 +5300,46 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		restoreSceneRenderState();
 	}
 
+	private void logGrassTerrainDiagnostics(SceneContext ctx,
+		int uploadedGrassInstances, int submittedGrassInstances)
+	{
+		if (!grassDiagnosticsPending || ctx == null)
+		{
+			return;
+		}
+		int tilesScanned = 0;
+		int tilesWithUnderlay = 0;
+		int tilesWithOverlay = 0;
+		int vegetationTiles = 0;
+		int eligibleTriangles = 0;
+		int rootsGenerated = 0;
+		for (Zone[] row : ctx.zones)
+		{
+			for (Zone zone : row)
+			{
+				if (!zone.initialized)
+				{
+					continue;
+				}
+				tilesScanned += zone.surfaceDetailTilesScanned;
+				tilesWithUnderlay += zone.surfaceDetailTilesWithUnderlay;
+				tilesWithOverlay += zone.surfaceDetailTilesWithOverlay;
+				vegetationTiles += zone.surfaceDetailVegetationTiles;
+				eligibleTriangles += zone.surfaceDetailEligibleTriangles;
+				rootsGenerated += zone.surfaceDetailGrassRoots;
+			}
+		}
+		log.info("Grass terrain diagnostics rebuild={}: scene tiles scanned={}, "
+			+ "tiles with underlay={}, tiles with overlay={}, "
+			+ "tiles resolved as vegetation-enabled={}, eligible terrain triangles={}, "
+			+ "root positions generated={}, grass instances uploaded={}, "
+			+ "grass instances submitted to draw={}, configured Lumbridge grass underlays=[46-50, 59-64]",
+			grassDiagnosticsGeneration, tilesScanned, tilesWithUnderlay,
+			tilesWithOverlay, vegetationTiles, eligibleTriangles, rootsGenerated,
+			uploadedGrassInstances, submittedGrassInstances);
+		grassDiagnosticsPending = false;
+	}
+
 	private void drawGlbGrassDebug(Scene scene)
 	{
 		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0 || grassGlbIndexCount == 0)
@@ -4368,20 +5362,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		grassInstanceBuffer.put(0.5f);
 		grassInstanceBuffer.put(0.0f);
 		grassInstanceBuffer.put(0.0f);
-		grassInstanceBuffer.put(0.0f);
-		grassInstanceBuffer.put(-1.0f);
-		grassInstanceBuffer.put(0.0f);
 		grassInstanceBuffer.flip();
 		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
 		float[] lightDirection = getActiveSceneLightDirection();
 		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
-			lightDirection, false, true, false, 0.0f);
+			lightDirection, false, true, false);
 		if (!grassDebugDrawLogged)
 		{
-			log.info("GLB grass Stage A final world height: min={} max={} (anchor={}, rootOffset=0.8)",
-				debugAnchorY + 0.8f - 64.0f, debugAnchorY + 0.8f,
-				debugAnchorY);
+			log.info("GLB grass Stage A final world height: min={} max={} (anchor=root)",
+				debugAnchorY - 64.0f, debugAnchorY);
 			grassDebugDrawLogged = true;
 		}
 	}
@@ -4412,15 +5402,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			grassInstanceBuffer.put(0.5f + i * 0.01f);
 			grassInstanceBuffer.put(0.0f);
 			grassInstanceBuffer.put(0.0f);
-			grassInstanceBuffer.put(0.0f);
-			grassInstanceBuffer.put(-1.0f);
-			grassInstanceBuffer.put(0.0f);
 		}
 		grassInstanceBuffer.flip();
 		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
 		drawGrassGlb(instances, 100000.0f, config.weatherMode(), 0.0f,
-			getActiveSceneLightDirection(), false, true, true, 0.0f);
+			getActiveSceneLightDirection(), false, true, true);
 		if (!grassDebugDrawLogged)
 		{
 			log.info("GLB grass Stage B: vertices={}, instances=10",
@@ -4447,9 +5434,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		float bestX = 0.0f;
 		float bestY = 0.0f;
 		float bestZ = 0.0f;
-		float bestNx = 0.0f;
-		float bestNy = -1.0f;
-		float bestNz = 0.0f;
 		int offset = SCENE_OFFSET >> 3;
 		for (int zx = 0; zx < ctx.sizeX; ++zx)
 		{
@@ -4483,9 +5467,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 						bestX = x;
 						bestY = zone.surfaceDetailAnchors[anchor + 1];
 						bestZ = z;
-						bestNx = zone.surfaceDetailAnchors[anchor + 6];
-						bestNy = zone.surfaceDetailAnchors[anchor + 7];
-						bestNz = zone.surfaceDetailAnchors[anchor + 8];
 					}
 				}
 			}
@@ -4501,14 +5482,11 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		grassInstanceBuffer.put(0.5f);
 		grassInstanceBuffer.put(0.0f);
 		grassInstanceBuffer.put(0.0f);
-		grassInstanceBuffer.put(bestNx);
-		grassInstanceBuffer.put(bestNy);
-		grassInstanceBuffer.put(bestNz);
 		grassInstanceBuffer.flip();
 		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
 		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
-			getActiveSceneLightDirection(), false, true, true, 0.0f);
+			getActiveSceneLightDirection(), false, true, true);
 		if (!grassDebugDrawLogged)
 		{
 			log.info("GLB grass Stage C: one terrain anchor at ({}, {}, {})",
@@ -4561,9 +5539,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 3]);
 					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
 					grassInstanceBuffer.put(0.0f);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
 					if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
 					{
 						break;
@@ -4587,12 +5562,32 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
 		drawGrassGlb(instanceCount, 100000.0f, config.weatherMode(), 0.0f,
-			getActiveSceneLightDirection(), false, true, true, 0.0f);
+			getActiveSceneLightDirection(), false, true, true);
 		if (!grassDebugDrawLogged)
 		{
 			log.info("GLB grass Stage D: eligible terrain instances={}", instanceCount);
 			grassDebugDrawLogged = true;
 		}
+	}
+
+	private void drawGrassRootMarkers(int instanceCount)
+	{
+		if (glGrassRootDebugProgram == 0 || instanceCount <= 0)
+		{
+			return;
+		}
+		glUseProgram(glGrassRootDebugProgram);
+		glUniformMatrix4fv(uniGrassRootDebugProjection, false, weatherProjection);
+		glUniform1f(uniGrassRootDebugMarkerSize, 6.0f);
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_GREATER);
+		glDepthMask(false);
+		glDisable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glBindVertexArray(vaoGrassHandle);
+		glDrawArraysInstanced(GL_LINES, 0, 6, instanceCount);
+		glBindVertexArray(0);
+		glDepthMask(true);
 	}
 
 	/** Test 1: the imported mesh through the same minimal debug path as the
@@ -4649,109 +5644,162 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		if (!grassGlbBoundsLogged && grassGlbNormalizedMin != null
 			&& grassGlbNormalizedMax != null)
 		{
-			float[] axisMin = {grassGlbNormalizedMin[0], -grassGlbNormalizedMax[1],
-				grassGlbNormalizedMin[2]};
-			float[] axisMax = {grassGlbNormalizedMax[0], -grassGlbNormalizedMin[1],
-				grassGlbNormalizedMax[2]};
-			float[] worldMin = {baseX + axisMin[0], anchorY + axisMin[1],
-				baseZ + axisMin[2]};
-			float[] worldMax = {baseX + axisMax[0], anchorY + axisMax[1],
-				baseZ + axisMax[2]};
-			log.info("GLB grass bounds normalized={}..{}, axisConverted={}..{}, "
+			float[] worldMin = {baseX + grassGlbNormalizedMin[0],
+				anchorY + grassGlbNormalizedMin[1], baseZ + grassGlbNormalizedMin[2]};
+			float[] worldMax = {baseX + grassGlbNormalizedMax[0],
+				anchorY + grassGlbNormalizedMax[1], baseZ + grassGlbNormalizedMax[2]};
+			log.info("GLB grass bounds RuneLite-local={}..{}, "
 				+ "modelScale=1, finalWorld={}..{}, terrainHeight={}",
 				java.util.Arrays.toString(grassGlbNormalizedMin),
 				java.util.Arrays.toString(grassGlbNormalizedMax),
-				java.util.Arrays.toString(axisMin), java.util.Arrays.toString(axisMax),
 				java.util.Arrays.toString(worldMin), java.util.Arrays.toString(worldMax),
 				anchorY);
 			grassGlbBoundsLogged = true;
 		}
 	}
 
-	private void drawGlbGrassSlopeDebug(Scene scene)
+	private void drawAllTerrainRootMarkers(Scene scene)
 	{
-		if (vaoGrassGlbHandle == 0 || glGrassGlbProgram == 0
-			|| grassGlbIndexCount == 0 || vboGrassInstanceHandle == 0)
+		if (glGrassDebugProgram == 0 || vaoGrassDebugHandle == 0
+			|| vboGrassDebugHandle == 0)
 		{
 			return;
 		}
 		SceneContext ctx = context(scene);
-		if (ctx == null)
+		Player player = client.getLocalPlayer();
+		if (ctx == null || player == null || player.getLocalLocation() == null)
 		{
 			return;
 		}
-		int offset = SCENE_OFFSET >> 3;
-		float bestSlope = -1.0f;
-		float bestX = 0.0f;
-		float bestY = 0.0f;
-		float bestZ = 0.0f;
-		float bestNx = 0.0f;
-		float bestNy = -1.0f;
-		float bestNz = 0.0f;
-		for (int zx = 0; zx < ctx.sizeX; ++zx)
+		LocalPoint local = player.getLocalLocation();
+		Tile[][][] tiles = scene.getExtendedTiles();
+		int[][][] heights = scene.getTileHeights();
+		int plane = client.getPlane();
+		if (plane < 0 || plane >= tiles.length || plane >= heights.length)
 		{
-			for (int zz = 0; zz < ctx.sizeZ; ++zz)
+			return;
+		}
+		int centerSceneX = local.getX() / Perspective.LOCAL_TILE_SIZE + SCENE_OFFSET;
+		int centerSceneZ = local.getY() / Perspective.LOCAL_TILE_SIZE + SCENE_OFFSET;
+		float viewX = weatherCameraX - local.getX();
+		float viewZ = weatherCameraZ - local.getY();
+		float viewLength = (float) Math.sqrt(viewX * viewX + viewZ * viewZ);
+		if (viewLength < 0.001f)
+		{
+			viewX = 0.0f;
+			viewZ = 1.0f;
+			viewLength = 1.0f;
+		}
+		float rightX = -viewZ / viewLength * 12.0f;
+		float rightZ = viewX / viewLength * 12.0f;
+		grassDebugBuffer.clear();
+		int roots = 0;
+		int triangles = 0;
+		for (int radius = 0; radius < 24 && roots < 20; ++radius)
+		{
+			for (int sceneX = centerSceneX - radius;
+				sceneX <= centerSceneX + radius && roots < 20; ++sceneX)
 			{
-				Zone zone = ctx.zones[zx][zz];
-				if (!zone.initialized
-					|| zone.surfaceDetailVisibleFrame != grassVisibilityFrame)
+				for (int sceneZ = centerSceneZ - radius;
+					sceneZ <= centerSceneZ + radius && roots < 20; ++sceneZ)
 				{
-					continue;
-				}
-				int end = Math.min(zone.surfaceDetailLevelOffsets[0],
-					zone.surfaceDetailAnchors.length);
-				float baseX = (zx - offset) << 10;
-				float baseZ = (zz - offset) << 10;
-				for (int anchor = 0; anchor + 8 < end;
-					anchor += SURFACE_DETAIL_INSTANCE_FLOATS)
-				{
-					if (Math.round(zone.surfaceDetailAnchors[anchor + 5]) != 0)
+					if (Math.max(Math.abs(sceneX - centerSceneX),
+						Math.abs(sceneZ - centerSceneZ)) != radius
+						|| sceneX < 0 || sceneX >= tiles[plane].length
+						|| sceneZ < 0 || sceneZ >= tiles[plane][sceneX].length)
 					{
 						continue;
 					}
-					float nx = zone.surfaceDetailAnchors[anchor + 6];
-					float nz = zone.surfaceDetailAnchors[anchor + 8];
-					float slope = nx * nx + nz * nz;
-					if (slope > bestSlope)
+					Tile tile = tiles[plane][sceneX][sceneZ];
+					if (tile == null)
 					{
-						bestSlope = slope;
-						bestX = baseX + zone.surfaceDetailAnchors[anchor];
-						bestY = zone.surfaceDetailAnchors[anchor + 1];
-						bestZ = baseZ + zone.surfaceDetailAnchors[anchor + 2];
-						bestNx = nx;
-						bestNy = zone.surfaceDetailAnchors[anchor + 7];
-						bestNz = nz;
+						continue;
+					}
+					int heightLevel = tile.getRenderLevel();
+					SceneTilePaint paint = tile.getSceneTilePaint();
+					if (paint != null && heightLevel >= 0 && heightLevel < heights.length
+						&& sceneX + 1 < heights[heightLevel].length
+						&& sceneZ + 1 < heights[heightLevel][sceneX].length)
+					{
+						int sw = heights[heightLevel][sceneX][sceneZ];
+						int se = heights[heightLevel][sceneX + 1][sceneZ];
+						int ne = heights[heightLevel][sceneX + 1][sceneZ + 1];
+						int nw = heights[heightLevel][sceneX][sceneZ + 1];
+						float baseX = (sceneX - SCENE_OFFSET)
+							* (float) Perspective.LOCAL_TILE_SIZE;
+						float baseZ = (sceneZ - SCENE_OFFSET)
+							* (float) Perspective.LOCAL_TILE_SIZE;
+						putRootMarker(baseX + Perspective.LOCAL_TILE_SIZE / 3.0f,
+							(sw + se + nw) / 3.0f,
+							baseZ + Perspective.LOCAL_TILE_SIZE / 3.0f, rightX, rightZ);
+						roots++;
+						triangles++;
+						if (roots < 20)
+						{
+							putRootMarker(baseX + Perspective.LOCAL_TILE_SIZE * 2.0f / 3.0f,
+								(ne + nw + se) / 3.0f,
+								baseZ + Perspective.LOCAL_TILE_SIZE * 2.0f / 3.0f,
+								rightX, rightZ);
+							roots++;
+							triangles++;
+						}
+						continue;
+					}
+
+					SceneTileModel model = tile.getSceneTileModel();
+					if (model == null)
+					{
+						continue;
+					}
+					int[] faceX = model.getFaceX();
+					int[] faceY = model.getFaceY();
+					int[] faceZ = model.getFaceZ();
+					int[] vertexX = model.getVertexX();
+					int[] vertexY = model.getVertexY();
+					int[] vertexZ = model.getVertexZ();
+					int[] colors = model.getTriangleColorA();
+					for (int face = 0; face < faceX.length && roots < 20; ++face)
+					{
+						if (face >= colors.length || colors[face] == 12345678)
+						{
+							continue;
+						}
+						int a = faceX[face];
+						int b = faceY[face];
+						int c = faceZ[face];
+						putRootMarker((vertexX[a] + vertexX[b] + vertexX[c]) / 3.0f,
+							(vertexY[a] + vertexY[b] + vertexY[c]) / 3.0f,
+							(vertexZ[a] + vertexZ[b] + vertexZ[c]) / 3.0f,
+							rightX, rightZ);
+						roots++;
+						triangles++;
 					}
 				}
 			}
 		}
-		if (bestSlope < 0.0f)
-		{
-			return;
-		}
-		grassInstanceBuffer.clear();
-		grassInstanceBuffer.put(bestX);
-		grassInstanceBuffer.put(bestY);
-		grassInstanceBuffer.put(bestZ);
-		grassInstanceBuffer.put(0.5f);
-		grassInstanceBuffer.put(0.0f);
-		grassInstanceBuffer.put(0.0f);
-		grassInstanceBuffer.put(bestNx);
-		grassInstanceBuffer.put(bestNy);
-		grassInstanceBuffer.put(bestNz);
-		grassInstanceBuffer.flip();
-		glBindBuffer(GL_ARRAY_BUFFER, vboGrassInstanceHandle);
-		glBufferSubData(GL_ARRAY_BUFFER, 0, grassInstanceBuffer);
-		drawGrassGlb(1, 100000.0f, config.weatherMode(), 0.0f,
-			getActiveSceneLightDirection(), false, true, true,
-			config.grassSlopeFollow() / 100.0f);
+		int vertexCount = roots * 6;
+		grassDebugBuffer.flip();
+		drawGrassDebugBuffer(vertexCount, 1.0f, 0.0f, 1.0f);
+		logGrassTerrainDiagnostics(ctx, 0, 0);
 		if (!grassDebugDrawLogged)
 		{
-			log.info("GLB grass slope test: anchor=({}, {}, {}), normal=({}, {}, {}), follow={}",
-				bestX, bestY, bestZ, bestNx, bestNy, bestNz,
-				config.grassSlopeFollow() / 100.0f);
+			log.info("All-terrain root marker diagnostic: terrain triangles={}, "
+				+ "roots generated={}, roots uploaded={}, markers submitted={}",
+				triangles, roots, roots, vertexCount > 0 ? roots : 0);
 			grassDebugDrawLogged = true;
 		}
+	}
+
+	private void putRootMarker(float rootX, float rootY, float rootZ,
+		float rightX, float rightZ)
+	{
+		float topY = rootY - 160.0f;
+		putDebugVertex(rootX - rightX, rootY, rootZ - rightZ);
+		putDebugVertex(rootX + rightX, rootY, rootZ + rightZ);
+		putDebugVertex(rootX + rightX, topY, rootZ + rightZ);
+		putDebugVertex(rootX - rightX, rootY, rootZ - rightZ);
+		putDebugVertex(rootX + rightX, topY, rootZ + rightZ);
+		putDebugVertex(rootX - rightX, topY, rootZ - rightZ);
 	}
 
 	private void drawGrassDebugQuad()
@@ -4816,19 +5864,31 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			vertexCount = 6;
 		}
 		grassDebugBuffer.flip();
+		boolean green = config.grassDebugMode() == GrassDebugMode.GREEN_CLUMP
+			|| config.grassDebugMode() == GrassDebugMode.GREEN_BLADE;
+		drawGrassDebugBuffer(vertexCount,
+			green ? 0.08f : 1.0f, green ? 1.0f : 0.0f, green ? 0.12f : 1.0f);
+		if (!grassDebugDrawLogged)
+		{
+			log.info("Grass debug draw: mode={}, vertices={}, instances=1, playerScene=({}, {}, {})",
+				config.grassDebugMode(), vertexCount, (int) px, (int) bottomY, (int) pz);
+			grassDebugDrawLogged = true;
+		}
+	}
+
+	/** Shared, proven non-instanced debug renderer used by the magenta quad and
+	 * all-terrain root markers. Callers only populate grassDebugBuffer. */
+	private void drawGrassDebugBuffer(int vertexCount, float red, float green, float blue)
+	{
+		if (vertexCount <= 0)
+		{
+			return;
+		}
 		glUseProgram(glGrassDebugProgram);
 		glUniformMatrix4fv(uniGrassDebugProjection, false, weatherProjection);
 		glUniform3f(uniGrassDebugBaseCenter, 0.0f, 0.0f, 0.0f);
 		glUniform1f(uniGrassDebugInstanceSpacing, 0.0f);
-		if (config.grassDebugMode() == GrassDebugMode.GREEN_CLUMP
-			|| config.grassDebugMode() == GrassDebugMode.GREEN_BLADE)
-		{
-			glUniform3f(uniGrassDebugColor, 0.08f, 1.0f, 0.12f);
-		}
-		else
-		{
-			glUniform3f(uniGrassDebugColor, 1.0f, 0.0f, 1.0f);
-		}
+		glUniform3f(uniGrassDebugColor, red, green, blue);
 		glBindBuffer(GL_ARRAY_BUFFER, vboGrassDebugHandle);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, grassDebugBuffer);
 		glEnable(GL_DEPTH_TEST);
@@ -4841,12 +5901,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		glBindVertexArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		restoreSceneRenderState();
-		if (!grassDebugDrawLogged)
-		{
-			log.info("Grass debug draw: mode={}, vertices={}, instances=1, playerScene=({}, {}, {})",
-				config.grassDebugMode(), vertexCount, (int) px, (int) bottomY, (int) pz);
-			grassDebugDrawLogged = true;
-		}
 	}
 
 	private void drawGrassInstancedDebug()
@@ -4958,9 +6012,6 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 3]);
 					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 4]);
 					grassInstanceBuffer.put(0.0f);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 6]);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 7]);
-					grassInstanceBuffer.put(zone.surfaceDetailAnchors[anchor + 8]);
 					if (++instanceCount >= MAX_SURFACE_DETAIL_INSTANCES)
 					{
 						break gatherTerrainDebug;
@@ -5532,6 +6583,7 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 		{
 			z.surfaceDetailVisibleFrame = grassVisibilityFrame;
 			z.waterVisibleFrame = grassVisibilityFrame;
+			z.treeReplacementVisibleFrame = grassVisibilityFrame;
 		}
 		// Static zone geometry is submitted immediately rather than through the
 		// PASS_OPAQUE dynamic buffer. Render it by replacement: deferred water uses
@@ -5598,8 +6650,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 				{
 					rts[i].vaoO.draw();
 				}
+				drawTrees(scene);
 				drawSurfaceDetails(scene);
+				logTreeRenderProfile();
 				drawAdvancedWater(scene);
+				if (config.treeOcclusionDebug()
+					&& config.treeOcclusion() != TreeOcclusionMode.OFF
+					&& treeVisibilityInitialized)
+				{
+					drawTreeOcclusionDebug();
+				}
 				restoreSceneRenderState();
 			}
 			else
@@ -5649,8 +6709,16 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 			return;
 		}
 
-		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		var worldLocation = tileObject.getWorldLocation();
+		if (scene.getWorldViewId() == WorldView.TOPLEVEL
+			&& treeReplacementRegistry.resolve(tileObject.getId(),
+				worldLocation.getX(), worldLocation.getY(), worldLocation.getPlane()) != null)
+		{
+			// The zone-resident replacement was registered during scene upload.
+			// Suppress only this transient GPU copy; the TileObject remains intact.
+			return;
+		}
+		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		if (m.getFaceTransparencies() == null)
 		{
 			RenderThread rt = rts[renderThreadId + 1];
@@ -5726,6 +6794,12 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		Renderable renderable = gameObject.getRenderable();
 		var worldLocation = gameObject.getWorldLocation();
+		if (scene.getWorldViewId() == WorldView.TOPLEVEL
+			&& treeReplacementRegistry.resolve(gameObject.getId(),
+				worldLocation.getX(), worldLocation.getY(), worldLocation.getPlane()) != null)
+		{
+			return;
+		}
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		int renderMode = renderable.getRenderMode();
 		if (renderMode == Renderable.RENDERMODE_SORTED_NO_DEPTH || m.getFaceTransparencies() != null || m.getTransparency() != 0)
@@ -6671,6 +7745,9 @@ public class GpuPlugin extends Plugin implements DrawCallbacks
 
 		ctx.zones = nextZones;
 		nextZones = null;
+		grassDiagnosticsGeneration++;
+		grassDiagnosticsPending = true;
+		grassPocStatusLogged = false;
 
 		// setup vaos
 		for (int x = 0; x < ctx.zones.length; ++x) // NOPMD: ForLoopCanBeForeach
